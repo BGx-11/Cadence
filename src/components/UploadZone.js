@@ -34,9 +34,10 @@ export default function UploadZone({ onFileSelected }) {
     if (loadingTrack) return;
     setLoadingTrack(sample.name);
     try {
-      const res = await fetch(sample.file);
+      const res = await fetch(sample.file, { cache: 'no-cache' });
       if (!res.ok) {
-        throw new Error(`Track not found on server (${res.status} ${res.statusText}). Ensure public/songs are committed and deployed.`);
+        const statusDetails = res.statusText ? ` ${res.statusText}` : '';
+        throw new Error(`Track not found on server (${res.status}${statusDetails}). Ensure public/songs are committed and deployed.`);
       }
       const contentType = res.headers.get('content-type') || '';
       if (contentType.includes('text/html')) {
