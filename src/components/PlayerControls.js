@@ -23,7 +23,7 @@ export default function PlayerControls({
   return (
     <div className="glass-panel" style={{ marginBottom: '1.25rem' }}>
       {/* Song info row */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', gap: '0.75rem', flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
           <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {audioFile.name}

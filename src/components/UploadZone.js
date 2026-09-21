@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { UploadCloud, Music2 } from 'lucide-react';
+import { UploadCloud, Music2, Loader2 } from 'lucide-react';
 
 const SAMPLE_TRACKS = [
   { name: 'Ed Sheeran – Perfect', file: '/songs/02_Ed_Sheeran_Perfect.mp3' },
@@ -10,6 +10,8 @@ const SAMPLE_TRACKS = [
 ];
 
 export default function UploadZone({ onFileSelected }) {
+  const [loadingTrack, setLoadingTrack] = React.useState(null);
+
   const handleDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -29,13 +31,25 @@ export default function UploadZone({ onFileSelected }) {
   };
 
   const loadSampleTrack = async (sample) => {
+    if (loadingTrack) return;
+    setLoadingTrack(sample.name);
     try {
       const res = await fetch(sample.file);
+      if (!res.ok) {
+        throw new Error(`Track not found on server (${res.status} ${res.statusText}). Ensure public/songs are committed and deployed.`);
+      }
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('text/html')) {
+        throw new Error('Server returned an HTML page instead of an audio file.');
+      }
       const blob = await res.blob();
-      const file = new File([blob], `${sample.name}.mp3`, { type: 'audio/mp3' });
+      const file = new File([blob], `${sample.name}.mp3`, { type: 'audio/mpeg' });
       onFileSelected(file);
     } catch (err) {
       console.error('Error loading sample track:', err);
+      alert(`Could not load demo track: ${err.message}`);
+    } finally {
+      setLoadingTrack(null);
     }
   };
 
@@ -76,10 +90,20 @@ export default function UploadZone({ onFileSelected }) {
               key={i}
               className="btn btn-secondary"
               onClick={() => loadSampleTrack(track)}
-              style={{ fontSize: '0.75rem', padding: '6px 12px' }}
+              disabled={!!loadingTrack}
+              style={{
+                fontSize: '0.75rem',
+                padding: '6px 12px',
+                opacity: loadingTrack && loadingTrack !== track.name ? 0.5 : 1,
+                cursor: loadingTrack ? 'not-allowed' : 'pointer'
+              }}
             >
-              <Music2 size={13} />
-              {track.name}
+              {loadingTrack === track.name ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <Music2 size={13} />
+              )}
+              {loadingTrack === track.name ? 'Loading...' : track.name}
             </button>
           ))}
         </div>
