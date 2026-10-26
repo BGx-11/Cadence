@@ -15,18 +15,26 @@ import { EssentiaWASM } from 'essentia.js/dist/essentia-wasm.es.js';
 let essentia = null;
 
 async function initEssentia() {
-  if (!essentia) {
-    if (EssentiaWASM.EssentiaJS) {
-      essentia = new Essentia(EssentiaWASM);
-    } else {
-      await new Promise((resolve) => {
-        EssentiaWASM.onRuntimeInitialized = () => {
-          resolve();
-        };
-      });
-      essentia = new Essentia(EssentiaWASM);
-    }
+  if (essentia) return essentia;
+
+  if (EssentiaWASM.EssentiaJS || EssentiaWASM.calledRun) {
+    essentia = new Essentia(EssentiaWASM);
+    return essentia;
   }
+
+  await new Promise((resolve) => {
+    if (EssentiaWASM.EssentiaJS || EssentiaWASM.calledRun) {
+      resolve();
+      return;
+    }
+    const prevInit = EssentiaWASM.onRuntimeInitialized;
+    EssentiaWASM.onRuntimeInitialized = () => {
+      if (prevInit) prevInit();
+      resolve();
+    };
+  });
+  essentia = new Essentia(EssentiaWASM);
+  return essentia;
 }
 
 // ─── Inline Chord Detection Engine ──────────────────────────────────────
@@ -34,16 +42,16 @@ async function initEssentia() {
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 // Perceptually weighted chord templates (exact 12 pitch classes: C, C#, D, D#, E, F, F#, G, G#, A, A#, B)
-// Incorporates inhibitory 3rd weights (-0.35) to sharply disambiguate Major vs Minor triads
+// The defining 3rd is weighted higher (0.85) than the common 5th (0.65) to eliminate 3rd-harmonic bleed
 const CHORD_TEMPLATES = {
-  '':      [1.0, 0, 0, -0.35, 0.75, 0, 0, 0.85, 0, 0, 0, 0],      // Major triad: 1, (no b3), 3, 5
-  'm':     [1.0, 0, 0, 0.75, -0.35, 0, 0, 0.85, 0, 0, 0, 0],      // Minor triad: 1, b3, (no 3), 5
-  '7':     [1.0, 0, 0, -0.35, 0.7, 0, 0, 0.8, 0, 0, 0.55, 0],      // Dominant 7th: 1, 3, 5, b7
-  'm7':    [1.0, 0, 0, 0.7, -0.35, 0, 0, 0.8, 0, 0, 0.55, 0],      // Minor 7th: 1, b3, 5, b7
-  'maj7':  [1.0, 0, 0, -0.35, 0.7, 0, 0, 0.8, 0, 0, 0, 0.55],      // Major 7th: 1, 3, 5, 7
-  'sus4':  [1.0, 0, 0, -0.25, -0.25, 0.65, 0, 0.85, 0, 0, 0, 0],   // Suspended 4th (inhibits major/minor 3rd)
-  'sus2':  [1.0, 0, 0.65, -0.25, -0.25, 0, 0, 0.85, 0, 0, 0, 0],   // Suspended 2nd (inhibits major/minor 3rd)
-  'dim':   [1.0, 0, 0, 0.7, -0.35, 0, 0, 0.7, 0, 0, 0, 0, 0],      // Diminished triad: 1, b3, b5
+  '':      [1.0, 0, 0, -0.35, 0.85, 0, 0, 0.65, 0, 0, 0, 0],      // Major triad: 1, (no b3), 3, 5
+  'm':     [1.0, 0, 0, 0.85, -0.35, 0, 0, 0.65, 0, 0, 0, 0],      // Minor triad: 1, b3, (no 3), 5
+  '7':     [1.0, 0, 0, -0.35, 0.80, 0, 0, 0.60, 0, 0, 0.65, 0],   // Dominant 7th: 1, 3, 5, b7
+  'm7':    [1.0, 0, 0, 0.80, -0.35, 0, 0, 0.60, 0, 0, 0.65, 0],   // Minor 7th: 1, b3, 5, b7
+  'maj7':  [1.0, 0, 0, -0.35, 0.80, 0, 0, 0.60, 0, 0, 0, 0.65],   // Major 7th: 1, 3, 5, 7
+  'sus4':  [1.0, 0, 0, -0.25, -0.25, 0.75, 0, 0.65, 0, 0, 0, 0],  // Suspended 4th (inhibits major/minor 3rd)
+  'sus2':  [1.0, 0, 0.75, -0.25, -0.25, 0, 0, 0.65, 0, 0, 0, 0],  // Suspended 2nd (inhibits major/minor 3rd)
+  'dim':   [1.0, 0, 0, 0.80, -0.35, 0, 0.75, -0.35, 0, 0, 0, 0],  // Diminished triad: 1, b3, b5 (inhibits 3 and P5)
 };
 
 const CHORD_TYPES = ['', 'm', '7', 'm7', 'maj7', 'sus4', 'sus2', 'dim'];
@@ -65,7 +73,9 @@ for (let root = 0; root < 12; root++) {
     ALL_CHORD_LABELS.push(NOTE_NAMES[root] + type);
   }
 }
-const NUM_STATES = ALL_CHORD_LABELS.length; // 96 states
+ALL_CHORD_LABELS.push('N.C.'); // State 96: Silence / No-Chord (N.C.)
+const NO_CHORD_STATE = 96;
+const NUM_STATES = ALL_CHORD_LABELS.length; // 97 states: 96 chords + N.C.
 
 function rotateArray(arr, n) {
   const len = arr.length;
@@ -96,20 +106,35 @@ function cosineSimilarity(hpcp, template) {
 
 function scoreChordMatch(hpcp, template) {
   const similarity = Math.max(0, cosineSimilarity(hpcp, template));
-  let nonChordEnergy = 0, chordEnergy = 0;
+  let numChordBins = 0;
+  let chordEnergy = 0;
+  let nonChordEnergy = 0;
+
   for (let i = 0; i < 12; i++) {
-    if (template[i] > 0) chordEnergy += hpcp[i];
-    else nonChordEnergy += hpcp[i];
+    if (template[i] > 0) {
+      chordEnergy += hpcp[i];
+      numChordBins++;
+    } else {
+      nonChordEnergy += hpcp[i];
+    }
   }
-  const totalEnergy = chordEnergy + nonChordEnergy;
-  const chordRatio = totalEnergy > 1e-8 ? chordEnergy / totalEnergy : 0;
-  return similarity * 0.65 + chordRatio * 0.35;
+
+  const numNonChordBins = 12 - numChordBins;
+  const avgChord = numChordBins > 0 ? chordEnergy / numChordBins : 0;
+  const avgNonChord = numNonChordBins > 0 ? nonChordEnergy / numNonChordBins : 0;
+  const contrast = (avgChord + avgNonChord > 1e-8) ? avgChord / (avgChord + avgNonChord) : 0;
+  return similarity * 0.70 + contrast * 0.30;
 }
 
 function computeChordConfidence(hpcpVector, stateIdx, bassVector = null) {
   if (stateIdx < 0 || stateIdx >= NUM_STATES) return 0.5;
   const hpcp = normalizeHPCP(hpcpVector);
   const totalEnergy = hpcp.reduce((a, b) => a + b, 0);
+
+  // Confidence for No-Chord state: high when frame is silent/ambient
+  if (stateIdx === NO_CHORD_STATE) {
+    return Math.max(0.5, Math.min(0.95, 1.0 - totalEnergy * 0.4));
+  }
   if (totalEnergy < 0.02) return 0.5;
 
   const root = Math.floor(stateIdx / CHORD_TYPES.length);
@@ -118,16 +143,23 @@ function computeChordConfidence(hpcpVector, stateIdx, bassVector = null) {
   const rotated = rotateArray(hpcp, root);
 
   const similarity = Math.max(0, cosineSimilarity(rotated, template));
+  let numChordBins = 0;
   let chordEnergy = 0;
   let nonChordEnergy = 0;
   for (let i = 0; i < 12; i++) {
-    if (template[i] > 0) chordEnergy += rotated[i];
-    else nonChordEnergy += rotated[i];
+    if (template[i] > 0) {
+      chordEnergy += rotated[i];
+      numChordBins++;
+    } else {
+      nonChordEnergy += rotated[i];
+    }
   }
-  const chordRatio = (chordEnergy + nonChordEnergy > 1e-8) ? chordEnergy / (chordEnergy + nonChordEnergy) : 0;
+  const numNonChordBins = 12 - numChordBins;
+  const avgChord = numChordBins > 0 ? chordEnergy / numChordBins : 0;
+  const avgNonChord = numNonChordBins > 0 ? nonChordEnergy / numNonChordBins : 0;
+  const contrast = (avgChord + avgNonChord > 1e-8) ? avgChord / (avgChord + avgNonChord) : 0;
 
-  // Harmonic template match calibrated for real-world instrument harmonics
-  let match = similarity * 0.65 + chordRatio * 0.35;
+  let match = similarity * 0.70 + contrast * 0.30;
   if (rotated[0] > 0.5) match += 0.04;
   if (bassVector && bassVector[root] > 0.4) match += 0.04;
 
@@ -139,8 +171,10 @@ function computeEmissionScores(hpcpVector, bassVector = null, diatonicChords = n
   const scores = new Float64Array(NUM_STATES);
   
   const totalEnergy = hpcp.reduce((a, b) => a + b, 0);
-  if (totalEnergy < 0.02) { 
-    scores.fill(1.0 / NUM_STATES);
+  if (totalEnergy < 0.035) { 
+    // Silence / ambient passage: No-Chord (N.C.) state dominates
+    scores.fill(0.001);
+    scores[NO_CHORD_STATE] = 1.0;
     return scores;
   }
   
@@ -156,7 +190,6 @@ function computeEmissionScores(hpcpVector, bassVector = null, diatonicChords = n
       let score = scoreChordMatch(rotated, template);
       score += (TYPE_BIAS[type] || 0);
       score += rotated[0] * 0.18; // Root note salience
-      if (template[7] > 0) score += rotated[7] * 0.06; // Fifth note salience
       score += bassBonus;
       
       // Harmonic family bonus: if chord belongs to the song's key family, boost it
@@ -168,9 +201,16 @@ function computeEmissionScores(hpcpVector, bassVector = null, diatonicChords = n
       idx++;
     }
   }
-  
+
+  // Emission for NO_CHORD_STATE: high when overall harmonic match across all chords is weak/noisy
+  let maxChordScore = 0;
+  for (let i = 0; i < 96; i++) {
+    if (scores[i] > maxChordScore) maxChordScore = scores[i];
+  }
+  scores[NO_CHORD_STATE] = Math.max(0.001, 0.40 - maxChordScore * 0.45);
+
   // Softmax with calibrated temperature for stable probability distribution
-  const TEMPERATURE = 0.12;
+  const TEMPERATURE = 0.18;
   let maxScore = -Infinity;
   for (let i = 0; i < NUM_STATES; i++) {
     if (scores[i] > maxScore) maxScore = scores[i];
@@ -234,20 +274,30 @@ function buildTransitionMatrix(keyRoot, keyScale) {
   const diatonicChords = getHarmonicFamily(root, keyScale);
   const matrix = new Float64Array(NUM_STATES * NUM_STATES);
 
-  // Musical self-transition prior (0.85 = stay on current chord with realistic temporal inertia)
-  const SELF_PROB = 0.85;
+  // Calibrated self-transition prior (0.52 = temporal persistence without verse locking)
+  const SELF_PROB = 0.52;
   const familyCount = Math.max(1, diatonicChords.size);
-  const DIATONIC_PROB = 0.13 / familyCount;
+  const DIATONIC_PROB = 0.43 / familyCount;
   const chromaticCount = Math.max(1, NUM_STATES - familyCount);
-  const CHROMATIC_PROB = 0.02 / chromaticCount;
+  const CHROMATIC_PROB = 0.05 / chromaticCount;
 
   for (let from = 0; from < NUM_STATES; from++) {
     let rowSum = 0;
     for (let to = 0; to < NUM_STATES; to++) {
       let prob;
-      if (from === to) prob = SELF_PROB;
-      else if (diatonicChords.has(ALL_CHORD_LABELS[to])) prob = DIATONIC_PROB;
-      else prob = CHROMATIC_PROB;
+      if (from === to) {
+        prob = SELF_PROB;
+      } else if (to === NO_CHORD_STATE) {
+        // Natural transition to silence at phrase endings / rests
+        prob = 0.02;
+      } else if (from === NO_CHORD_STATE) {
+        // Exiting silence into a diatonic chord
+        prob = diatonicChords.has(ALL_CHORD_LABELS[to]) ? DIATONIC_PROB * 1.5 : CHROMATIC_PROB;
+      } else if (diatonicChords.has(ALL_CHORD_LABELS[to])) {
+        prob = DIATONIC_PROB;
+      } else {
+        prob = CHROMATIC_PROB;
+      }
       matrix[from * NUM_STATES + to] = prob;
       rowSum += prob;
     }
@@ -306,7 +356,7 @@ function viterbiDecode(emissionScores, transMatrix) {
 
 // ─── Musical Chord Consolidation & Flicker Absorption ──────────────────
 
-function consolidateChords(rawChordsList, totalDuration, minDurationSec = 0.8) {
+export function consolidateChords(rawChordsList, totalDuration, minDurationSec = 0.8) {
   if (!rawChordsList || rawChordsList.length === 0) return [];
 
   // 1. Initial merge of consecutive identical chords
@@ -326,20 +376,16 @@ function consolidateChords(rawChordsList, totalDuration, minDurationSec = 0.8) {
     }
   }
 
-  // 2. Absorb micro-flickers < minDurationSec into adjacent neighbor
+  // 2. Absorb micro-flickers (< 0.4s) into previous chord; preserve opening chord
+  const flickerThreshold = Math.min(minDurationSec, 0.4);
   if (merged.length > 1) {
     let clean = [];
     for (let i = 0; i < merged.length; i++) {
       const cur = merged[i];
-      if (cur.duration < minDurationSec && clean.length > 0) {
+      if (cur.duration < flickerThreshold && clean.length > 0) {
         const prev = clean[clean.length - 1];
         prev.duration += cur.duration;
         prev.beatCount = (prev.beatCount || 1) + (cur.beatCount || 1);
-      } else if (cur.duration < minDurationSec && i < merged.length - 1) {
-        const next = merged[i + 1];
-        next.time = cur.time;
-        next.duration += cur.duration;
-        next.beatCount = (next.beatCount || 1) + (cur.beatCount || 1);
       } else {
         clean.push(cur);
       }
@@ -363,17 +409,18 @@ function consolidateChords(rawChordsList, totalDuration, minDurationSec = 0.8) {
     }
   }
 
-  // 4. Ensure seamless duration tiling and start at 0.0s
+  // 4. Ensure seamless duration tiling (clamp duration strictly to nextTime - time)
   for (let i = 0; i < finalChords.length; i++) {
     const nextTime = i < finalChords.length - 1 ? finalChords[i + 1].time : totalDuration;
-    finalChords[i].duration = Math.max(minDurationSec, nextTime - finalChords[i].time);
+    finalChords[i].duration = Math.max(0.01, nextTime - finalChords[i].time);
   }
-  if (finalChords.length > 0) {
+  // Only snap to 0.0s if opening chord started within 0.5s of audio start, preserving leading silence
+  if (finalChords.length > 0 && finalChords[0].time < 0.5) {
     finalChords[0].time = 0;
     if (finalChords.length > 1) {
-      finalChords[0].duration = finalChords[1].time;
+      finalChords[0].duration = Math.max(0.01, finalChords[1].time);
     } else {
-      finalChords[0].duration = totalDuration;
+      finalChords[0].duration = Math.max(0.01, totalDuration);
     }
   }
 
@@ -403,23 +450,35 @@ function detectTimeSignature(beats, audioData, sampleRate) {
   if (maxStrength < 1e-8) return 4;
   const normalized = strengths.map(s => s / maxStrength);
   
-  let score4 = 0, score3 = 0;
-  for (let i = 0; i < normalized.length; i++) {
-    const pos3 = i % 3;
-    const pos4 = i % 4;
-    
-    if (pos3 === 0) score3 += normalized[i];
-    else score3 -= normalized[i] * 0.3;
-    
-    if (pos4 === 0) score4 += normalized[i];
-    else if (pos4 === 2) score4 += normalized[i] * 0.4;
-    else score4 -= normalized[i] * 0.2;
-  }
-  
-  score3 /= normalized.length;
-  score4 /= normalized.length;
-  
-  return score3 > score4 * 1.35 ? 3 : 4;
+  // Phase-invariant meter evaluation across 3/4, 4/4, and 6/8
+  const evalMeter = (meter) => {
+    let maxScore = -Infinity;
+    for (let phase = 0; phase < meter; phase++) {
+      let score = 0;
+      for (let i = 0; i < normalized.length; i++) {
+        const beatInBar = (i + phase) % meter;
+        if (beatInBar === 0) {
+          score += normalized[i]; // Primary downbeat
+        } else if (meter === 4 && beatInBar === 2) {
+          score += normalized[i] * 0.35; // Secondary pulse
+        } else if (meter === 6 && beatInBar === 3) {
+          score += normalized[i] * 0.45; // Compound duple secondary pulse
+        } else {
+          score -= normalized[i] * 0.2;
+        }
+      }
+      maxScore = Math.max(maxScore, score / normalized.length);
+    }
+    return maxScore;
+  };
+
+  const score3 = evalMeter(3);
+  const score4 = evalMeter(4);
+  const score6 = evalMeter(6);
+
+  if (score6 > score4 * 1.05 && score6 > score3 * 1.05) return { numerator: 6, denominator: 8 };
+  if (score3 > score4 * 1.05) return { numerator: 3, denominator: 4 };
+  return { numerator: 4, denominator: 4 };
 }
 
 // ─── Section Detection ─────────────────────────────────────────────────
@@ -444,7 +503,6 @@ function detectSections(chords, beats, totalDuration) {
   }
   
   const patternLabels = {};
-  const labelNames = ['A', 'B', 'C', 'D', 'E', 'F'];
   let labelIdx = 0;
   
   const sections = [];
@@ -452,7 +510,9 @@ function detectSections(chords, beats, totalDuration) {
   
   for (const phrase of phrases) {
     if (!patternLabels[phrase.pattern]) {
-      patternLabels[phrase.pattern] = labelNames[Math.min(labelIdx, labelNames.length - 1)];
+      patternLabels[phrase.pattern] = labelIdx < 26
+        ? String.fromCharCode(65 + labelIdx)
+        : String.fromCharCode(65 + (labelIdx % 26)) + Math.floor(labelIdx / 26);
       labelIdx++;
     }
     
@@ -505,6 +565,11 @@ function computeWaveformData(audioData, numBins) {
 
 self.onmessage = async (e) => {
   if (e.data.type === 'ANALYZE_AUDIO') {
+    const analysisId = e.data.analysisId;
+    const sendProgress = (stage, progress) => {
+      self.postMessage({ type: 'PROGRESS', analysisId, stage, progress });
+    };
+
     try {
       const audioData = e.data.audioData; // Float32Array
       const sampleRate = e.data.sampleRate || 44100;
@@ -512,7 +577,7 @@ self.onmessage = async (e) => {
 
       await initEssentia();
 
-      self.postMessage({ type: 'PROGRESS', stage: 'Detecting beats & tempo...', progress: 0.1 });
+      sendProgress('Detecting beats & tempo...', 0.1);
 
       let audioVector = null;
       try {
@@ -529,6 +594,8 @@ self.onmessage = async (e) => {
           rawBeats.push(ticks.get(i));
         }
         if (ticks) ticks.delete();
+        if (rhythm.estimates) rhythm.estimates.delete();
+        if (rhythm.bpmIntervals) rhythm.bpmIntervals.delete();
 
         // Sanitize beats without truncation:
         rawBeats.sort((a, b) => a - b);
@@ -571,7 +638,7 @@ self.onmessage = async (e) => {
           }
         }
 
-        self.postMessage({ type: 'PROGRESS', stage: 'Analyzing musical key...', progress: 0.2 });
+        sendProgress('Analyzing musical key...', 0.2);
 
         // ── 2. Key Detection (with sampleRate) ──
         const keyResult = essentia.KeyExtractor(
@@ -595,7 +662,7 @@ self.onmessage = async (e) => {
         // ── 3. Time Signature Detection ──
         const timeSignature = detectTimeSignature(rawBeats, audioData, sampleRate);
 
-        self.postMessage({ type: 'PROGRESS', stage: 'Extracting harmonic profiles...', progress: 0.3 });
+        sendProgress('Extracting harmonic profiles...', 0.3);
 
         // ── 4. HPCP Frames & Bass Profiles ──
         const frameSize = 4096;
@@ -693,11 +760,11 @@ self.onmessage = async (e) => {
 
           if (start % (hopSize * 30) === 0) {
             const hpcpProgress = 0.3 + (start / audioLen) * 0.45;
-            self.postMessage({ type: 'PROGRESS', stage: 'Computing harmonic profile...', progress: hpcpProgress });
+            sendProgress('Computing harmonic profile...', hpcpProgress);
           }
         }
 
-        self.postMessage({ type: 'PROGRESS', stage: 'Decoding chord sequence...', progress: 0.8 });
+        sendProgress('Decoding chord sequence...', 0.8);
 
         // ── 5. Beat-synchronous Chord Decoding with Viterbi & Smoothing ──
         let chords = [];
@@ -742,10 +809,10 @@ self.onmessage = async (e) => {
 
             const normH = normalizeHPCP(medianHPCP);
             const energy = normH.reduce((a, b) => a + b, 0);
-            if (energy < 0.03 && beatHPCPs.length > 0) {
-              // Musical chords sustain across quiet vocal pauses or quiet beats
-              beatHPCPs.push([...beatHPCPs[beatHPCPs.length - 1]]);
-              beatBassHPCPs.push([...beatBassHPCPs[beatBassHPCPs.length - 1]]);
+            if (energy < 0.025) {
+              // Genuinely quiet beat: feed zero vector so 'N.C.' state detects silence
+              beatHPCPs.push(new Array(12).fill(0));
+              beatBassHPCPs.push(new Array(12).fill(0));
             } else {
               beatHPCPs.push(normH);
               beatBassHPCPs.push(normalizeHPCP(medianBass));
@@ -763,13 +830,15 @@ self.onmessage = async (e) => {
           const emissions = beatHPCPs.map((hpcp, i) => computeEmissionScores(hpcp, beatBassHPCPs[i], diatonicChords));
           const path = viterbiDecode(emissions, transMatrix);
 
-          // Post-processing: Consolidate transient 1-beat chord flickers
+          // Post-processing: Consolidate transient 1-beat chord flickers (A -> X -> A)
           const smoothedPath = [...path];
           for (let b = 1; b < path.length - 1; b++) {
             if (smoothedPath[b - 1] === smoothedPath[b + 1] && smoothedPath[b] !== smoothedPath[b - 1]) {
+              const beatDuration = (rawBeats[b + 1] || totalDuration) - rawBeats[b];
               const neighborScore = emissions[b][smoothedPath[b - 1]];
               const currentScore = emissions[b][smoothedPath[b]];
-              if (currentScore < neighborScore * 1.35) {
+              // Smooth transient excursions that do not overwhelmingly dominate the harmonic frame
+              if (beatDuration < 1.2 || currentScore < neighborScore * 1000) {
                 smoothedPath[b] = smoothedPath[b - 1];
               }
             }
@@ -795,7 +864,7 @@ self.onmessage = async (e) => {
           chords = consolidateChords(rawChords, totalDuration, 0.8);
         }
 
-        self.postMessage({ type: 'PROGRESS', stage: 'Structuring song sections...', progress: 0.92 });
+        sendProgress('Structuring song sections...', 0.92);
 
         // ── 6. Section Detection ──
         const sections = detectSections(chords, rawBeats, totalDuration);
@@ -820,11 +889,12 @@ self.onmessage = async (e) => {
           beatStrengths[i] /= maxBeatStrength;
         }
 
-        self.postMessage({ type: 'PROGRESS', stage: 'Complete!', progress: 1.0 });
+        sendProgress('Complete!', 1.0);
 
         // ── Return Results ──
         self.postMessage({
           type: 'ANALYSIS_COMPLETE',
+          analysisId,
           key: detectedKey,
           keyStrength: keyStrength,
           chords: chords,
@@ -841,7 +911,7 @@ self.onmessage = async (e) => {
       }
 
     } catch (error) {
-      self.postMessage({ type: 'ERROR', error: String(error.message || error) });
+      self.postMessage({ type: 'ERROR', analysisId, error: String(error.message || error) });
     }
   }
 };

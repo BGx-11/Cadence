@@ -20,7 +20,19 @@ export default function Visualizer({ beats, beatStrengths, currentTime, isPlayin
     }
   }
 
-  const measureBeat = activeBeatIndex >= 0 ? (activeBeatIndex % timeSignature) : -1;
+  const numerator = typeof timeSignature === 'object' && timeSignature?.numerator
+    ? timeSignature.numerator
+    : typeof timeSignature === 'number'
+    ? timeSignature
+    : parseInt(String(timeSignature).split('/')[0], 10) || 4;
+
+  const denominator = typeof timeSignature === 'object' && timeSignature?.denominator
+    ? timeSignature.denominator
+    : typeof timeSignature === 'string' && timeSignature.includes('/')
+    ? parseInt(timeSignature.split('/')[1], 10) || 4
+    : 4;
+
+  const measureBeat = activeBeatIndex >= 0 ? (activeBeatIndex % numerator) : -1;
 
   // Onset strength
   const currentStrength = activeBeatIndex >= 0 && beatStrengths && beatStrengths[activeBeatIndex]
@@ -35,8 +47,9 @@ export default function Visualizer({ beats, beatStrengths, currentTime, isPlayin
     beatProgress = Math.max(0, Math.min(1, (currentTime - beatStart) / Math.max(0.001, beatEnd - beatStart)));
   }
 
-  // Pendulum swing angle
-  const pendulumAngle = isPlaying ? Math.sin(beatProgress * Math.PI) * 22 * (measureBeat % 2 === 0 ? 1 : -1) : 0;
+  // Pendulum swing angle: continuous physical alternating direction with turnaround apex on each beat
+  const direction = activeBeatIndex >= 0 ? (activeBeatIndex % 2 === 0 ? 1 : -1) : 1;
+  const pendulumAngle = isPlaying ? Math.cos(beatProgress * Math.PI) * 22 * direction : 0;
 
   return (
     <div className="metronome-container">
@@ -95,7 +108,7 @@ export default function Visualizer({ beats, beatStrengths, currentTime, isPlayin
 
       {/* Beat Dots */}
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-        {Array.from({ length: timeSignature }).map((_, dotIndex) => {
+        {Array.from({ length: numerator }).map((_, dotIndex) => {
           const isActive = measureBeat === dotIndex;
           const isDownbeat = dotIndex === 0;
 
@@ -131,7 +144,7 @@ export default function Visualizer({ beats, beatStrengths, currentTime, isPlayin
             paddingBottom: '1px',
           }}
         >
-          {timeSignature}
+          {numerator}
         </span>
         <span
           style={{
@@ -141,7 +154,7 @@ export default function Visualizer({ beats, beatStrengths, currentTime, isPlayin
             lineHeight: 1.2,
           }}
         >
-          4
+          {denominator}
         </span>
       </div>
 

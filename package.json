@@ -1,12 +1,13 @@
 {
   "name": "cadence",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node scripts/test_invariants.js"
   },
   "dependencies": {
     "essentia.js": "^0.1.3",

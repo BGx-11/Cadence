@@ -71,16 +71,16 @@ const CHORD_LIBRARY = {
   'G#maj7': { frets: [4, 6, 5, 5, 4, 4], fingers: [1, 4, 2, 3, 1, 1], barre: 4 },
   'A#maj7': { frets: [-1, 1, 3, 2, 3, 1], fingers: [0, 1, 3, 2, 4, 1], barre: 1 },
 
-  // ─── Diminished ───
-  'Cdim':  { frets: [-1, 3, 4, 2, 4, 2], fingers: [0, 2, 3, 1, 4, 1] },
+  // ─── Diminished Triads ───
+  'Cdim':  { frets: [-1, 3, 4, 5, 4, -1], fingers: [0, 1, 2, 4, 3, 0] },
   'Ddim':  { frets: [-1, -1, 0, 1, 3, 1], fingers: [0, 0, 0, 1, 3, 2] },
   'Edim':  { frets: [0, 1, 2, 0, -1, -1], fingers: [0, 1, 2, 0, 0, 0] },
   'Fdim':  { frets: [-1, -1, 3, 1, 0, 1], fingers: [0, 0, 3, 1, 0, 2] },
   'Gdim':  { frets: [3, 4, 5, 3, -1, -1], fingers: [1, 2, 3, 1, 0, 0], barre: 3 },
   'Adim':  { frets: [-1, 0, 1, 2, 1, -1], fingers: [0, 0, 1, 3, 2, 0] },
   'Bdim':  { frets: [-1, 2, 3, 4, 3, -1], fingers: [0, 1, 2, 4, 3, 0] },
-  'C#dim': { frets: [-1, 4, 5, 3, 5, 3], fingers: [0, 2, 3, 1, 4, 1] },
-  'D#dim': { frets: [-1, 6, 7, 5, 7, 5], fingers: [0, 2, 3, 1, 4, 1] },
+  'C#dim': { frets: [-1, 4, 5, 6, 5, -1], fingers: [0, 1, 2, 4, 3, 0] },
+  'D#dim': { frets: [-1, 6, 7, 8, 7, -1], fingers: [0, 1, 2, 4, 3, 0] },
   'F#dim': { frets: [-1, -1, 4, 2, 1, 2], fingers: [0, 0, 4, 2, 1, 3] },
   'G#dim': { frets: [-1, -1, 6, 4, 3, 4], fingers: [0, 0, 4, 2, 1, 3] },
   'A#dim': { frets: [-1, 1, 2, 3, 2, -1], fingers: [0, 1, 2, 4, 3, 0] },
@@ -95,22 +95,32 @@ const CHORD_LIBRARY = {
   'Baug':  { frets: [-1, 2, 1, 0, 0, 3], fingers: [0, 2, 1, 0, 0, 4] },
 
   // ─── Suspended 2nd ───
-  'Csus2': { frets: [-1, 3, 0, 0, 1, 3], fingers: [0, 2, 0, 0, 1, 3] },
-  'Dsus2': { frets: [-1, -1, 0, 2, 3, 0], fingers: [0, 0, 0, 1, 2, 0] },
-  'Esus2': { frets: [0, 2, 4, 4, 0, 0], fingers: [0, 1, 3, 4, 0, 0] },
-  'Fsus2': { frets: [-1, -1, 3, 0, 1, 1], fingers: [0, 0, 3, 0, 1, 1] },
-  'Gsus2': { frets: [3, 0, 0, 0, 3, 3], fingers: [1, 0, 0, 0, 3, 4] },
-  'Asus2': { frets: [-1, 0, 2, 2, 0, 0], fingers: [0, 0, 1, 2, 0, 0] },
-  'Bsus2': { frets: [-1, 2, 4, 4, 2, 2], fingers: [0, 1, 3, 4, 1, 1], barre: 2 },
+  'Csus2':  { frets: [-1, 3, 0, 0, 1, 3], fingers: [0, 2, 0, 0, 1, 3] },
+  'C#sus2': { frets: [-1, 4, 6, 6, 4, 4], fingers: [0, 1, 3, 4, 1, 1], barre: 4 },
+  'Dsus2':  { frets: [-1, -1, 0, 2, 3, 0], fingers: [0, 0, 0, 1, 2, 0] },
+  'D#sus2': { frets: [-1, 6, 8, 8, 6, 6], fingers: [0, 1, 3, 4, 1, 1], barre: 6 },
+  'Esus2':  { frets: [0, 2, 4, 4, 0, 0], fingers: [0, 1, 3, 4, 0, 0] },
+  'Fsus2':  { frets: [-1, -1, 3, 0, 1, 1], fingers: [0, 0, 3, 0, 1, 1] },
+  'F#sus2': { frets: [-1, -1, 4, 1, 2, 2], fingers: [0, 0, 4, 1, 2, 2] },
+  'Gsus2':  { frets: [3, 0, 0, 0, 3, 3], fingers: [1, 0, 0, 0, 3, 4] },
+  'G#sus2': { frets: [-1, -1, 6, 3, 4, 4], fingers: [0, 0, 4, 1, 2, 2] },
+  'Asus2':  { frets: [-1, 0, 2, 2, 0, 0], fingers: [0, 0, 1, 2, 0, 0] },
+  'A#sus2': { frets: [-1, 1, 3, 3, 1, 1], fingers: [0, 1, 3, 4, 1, 1], barre: 1 },
+  'Bsus2':  { frets: [-1, 2, 4, 4, 2, 2], fingers: [0, 1, 3, 4, 1, 1], barre: 2 },
 
   // ─── Suspended 4th ───
-  'Csus4': { frets: [-1, 3, 3, 0, 1, 1], fingers: [0, 3, 4, 0, 1, 1] },
-  'Dsus4': { frets: [-1, -1, 0, 2, 3, 3], fingers: [0, 0, 0, 1, 2, 3] },
-  'Esus4': { frets: [0, 2, 2, 2, 0, 0], fingers: [0, 2, 3, 4, 0, 0] },
-  'Fsus4': { frets: [1, 1, 3, 3, 1, 1], fingers: [1, 1, 3, 4, 1, 1], barre: 1 },
-  'Gsus4': { frets: [3, 3, 0, 0, 1, 3], fingers: [2, 3, 0, 0, 1, 4] },
-  'Asus4': { frets: [-1, 0, 2, 2, 3, 0], fingers: [0, 0, 1, 2, 3, 0] },
-  'Bsus4': { frets: [-1, 2, 4, 4, 5, 2], fingers: [0, 1, 2, 3, 4, 1], barre: 2 },
+  'Csus4':  { frets: [-1, 3, 3, 0, 1, 1], fingers: [0, 3, 4, 0, 1, 1] },
+  'C#sus4': { frets: [-1, 4, 6, 6, 7, 4], fingers: [0, 1, 2, 3, 4, 1], barre: 4 },
+  'Dsus4':  { frets: [-1, -1, 0, 2, 3, 3], fingers: [0, 0, 0, 1, 2, 3] },
+  'D#sus4': { frets: [-1, 6, 8, 8, 9, 6], fingers: [0, 1, 2, 3, 4, 1], barre: 6 },
+  'Esus4':  { frets: [0, 2, 2, 2, 0, 0], fingers: [0, 2, 3, 4, 0, 0] },
+  'Fsus4':  { frets: [1, 1, 3, 3, 1, 1], fingers: [1, 1, 3, 4, 1, 1], barre: 1 },
+  'F#sus4': { frets: [2, 2, 4, 4, 2, 2], fingers: [1, 1, 3, 4, 1, 1], barre: 2 },
+  'Gsus4':  { frets: [3, 3, 0, 0, 1, 3], fingers: [2, 3, 0, 0, 1, 4] },
+  'G#sus4': { frets: [4, 4, 6, 6, 4, 4], fingers: [1, 1, 3, 4, 1, 1], barre: 4 },
+  'Asus4':  { frets: [-1, 0, 2, 2, 3, 0], fingers: [0, 0, 1, 2, 3, 0] },
+  'A#sus4': { frets: [-1, 1, 3, 3, 4, 1], fingers: [0, 1, 2, 3, 4, 1], barre: 1 },
+  'Bsus4':  { frets: [-1, 2, 4, 4, 5, 2], fingers: [0, 1, 2, 3, 4, 1], barre: 2 },
 
   // ─── Power Chords ───
   'C5':   { frets: [-1, 3, 5, 5, -1, -1], fingers: [0, 1, 3, 4, 0, 0] },
@@ -146,7 +156,7 @@ const CHORD_LIBRARY = {
   'F6':   { frets: [1, 3, 3, 2, 3, 1], fingers: [1, 3, 3, 2, 4, 1], barre: 1 },
   'G6':   { frets: [3, 2, 0, 0, 0, 0], fingers: [3, 2, 0, 0, 0, 0] },
   'A6':   { frets: [-1, 0, 2, 2, 2, 2], fingers: [0, 0, 1, 1, 1, 1] },
-  'B6':   { frets: [-1, 2, 4, 4, 4, 4], fingers: [0, 1, 2, 3, 3, 3], barre: 4 },
+  'B6':   { frets: [-1, 2, 4, 4, 4, 4], fingers: [0, 1, 2, 3, 3, 3] },
 
   // ─── Minor 6th ───
   'Cm6':  { frets: [-1, 3, 1, 2, 1, 3], fingers: [0, 3, 1, 2, 1, 4], barre: 1 },
@@ -156,22 +166,22 @@ const CHORD_LIBRARY = {
 
   // ─── Add 9 ───
   'Cadd9': { frets: [-1, 3, 2, 0, 3, 0], fingers: [0, 3, 2, 0, 4, 0] },
-  'Dadd9': { frets: [-1, -1, 0, 2, 3, 0], fingers: [0, 0, 0, 1, 2, 0] },
+  'Dadd9': { frets: [-1, -1, 0, 2, 5, 2], fingers: [0, 0, 0, 1, 4, 1], barre: 2 },
   'Eadd9': { frets: [0, 2, 2, 1, 0, 2], fingers: [0, 2, 3, 1, 0, 4] },
   'Fadd9': { frets: [-1, -1, 3, 2, 1, 3], fingers: [0, 0, 3, 2, 1, 4] },
   'Gadd9': { frets: [3, 0, 0, 2, 0, 3], fingers: [2, 0, 0, 1, 0, 3] },
   'Aadd9': { frets: [-1, 0, 2, 4, 2, 0], fingers: [0, 0, 1, 4, 2, 0] },
 
   // ─── 9th Chords ───
-  'C9':   { frets: [-1, 3, 2, 3, 3, 3], fingers: [0, 2, 1, 3, 3, 3], barre: 3 },
-  'D9':   { frets: [-1, -1, 0, 2, 1, 0], fingers: [0, 0, 0, 2, 1, 0] },
+  'C9':   { frets: [-1, 3, 2, 3, 3, 3], fingers: [0, 2, 1, 3, 3, 3] },
+  'D9':   { frets: [-1, 5, 4, 5, 5, -1], fingers: [0, 2, 1, 3, 4, 0] },
   'E9':   { frets: [0, 2, 0, 1, 0, 2], fingers: [0, 2, 0, 1, 0, 3] },
   'G9':   { frets: [3, 2, 0, 2, 0, 1], fingers: [4, 2, 0, 3, 0, 1] },
   'A9':   { frets: [-1, 0, 2, 4, 2, 3], fingers: [0, 0, 1, 3, 1, 2] },
 
   // ─── Minor 9th ───
-  'Cm9':  { frets: [-1, 3, 1, 3, 3, 3], fingers: [0, 2, 1, 3, 3, 3], barre: 3 },
-  'Dm9':  { frets: [-1, -1, 0, 2, 1, 0], fingers: [0, 0, 0, 2, 1, 0] },
+  'Cm9':  { frets: [-1, 3, 1, 3, 3, 3], fingers: [0, 2, 1, 3, 3, 3] },
+  'Dm9':  { frets: [-1, 5, 3, 5, 5, -1], fingers: [0, 2, 1, 3, 4, 0] },
   'Em9':  { frets: [0, 2, 0, 0, 0, 2], fingers: [0, 1, 0, 0, 0, 2] },
   'Am9':  { frets: [-1, 0, 2, 4, 1, 3], fingers: [0, 0, 1, 4, 2, 3] },
 
@@ -197,14 +207,47 @@ const ENHARMONIC = (() => {
   return map;
 })();
 
-export default React.memo(function ChordChart({ chordName, width = 130, height = 160 }) {
+export default React.memo(function ChordChart({ chordName, width = 130, height = 160, leftHanded = false }) {
   // Try enharmonic mapping if not found
   let lookupName = chordName;
   if (!CHORD_LIBRARY[lookupName] && ENHARMONIC[lookupName]) {
     lookupName = ENHARMONIC[lookupName];
   }
 
-  const data = CHORD_LIBRARY[lookupName];
+  if (lookupName === 'N.C.' || lookupName === 'N') {
+    return (
+      <div style={{
+        width, height,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--bg-elevated, #f4f4f5)',
+        borderRadius: 'var(--radius-md, 8px)',
+        border: '1px dashed var(--border-strong, #a1a1aa)',
+      }}>
+        <span style={{
+          fontSize: '1.25rem',
+          fontWeight: 700,
+          color: 'var(--foreground-muted, #71717a)',
+          letterSpacing: '-0.02em',
+          fontFamily: 'var(--font-mono, monospace)',
+        }}>
+          N.C.
+        </span>
+        <span style={{
+          fontSize: '0.625rem',
+          color: 'var(--foreground-dim, #71717a)',
+          marginTop: 4,
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          fontFamily: 'var(--font-mono, monospace)',
+        }}>
+          No Chord / Rest
+        </span>
+      </div>
+    );
+  }
 
   if (!data) {
     // Fallback: styled badge for unknown chords
@@ -243,6 +286,8 @@ export default React.memo(function ChordChart({ chordName, width = 130, height =
   }
 
   const { frets, fingers, barre } = data;
+  const displayFrets = leftHanded ? [...frets].reverse() : frets;
+  const displayFingers = (fingers && leftHanded) ? [...fingers].reverse() : fingers;
 
   const stringCount = 6;
   const fretCount = 4;
@@ -326,25 +371,36 @@ export default React.memo(function ChordChart({ chordName, width = 130, height =
             x1={paddingX + i * stringSpacing} y1={paddingY}
             x2={paddingX + i * stringSpacing} y2={height - bottomPad}
             stroke="var(--foreground-muted, #71717a)"
-            strokeWidth={getStringWidth(i)}
+            strokeWidth={getStringWidth(leftHanded ? stringCount - 1 - i : i)}
             opacity={0.7}
           />
         ))}
 
-        {/* Barre */}
-        {barre && (
-          <rect
-            x={paddingX - 4}
-            y={paddingY + (barre - startFret) * fretSpacing + fretSpacing / 4}
-            width={(stringCount - 1) * stringSpacing + 8}
-            height={fretSpacing / 2}
-            rx={fretSpacing / 4}
-            fill="var(--foreground, #09090b)"
-          />
-        )}
+        {/* Barre: accurately spans active barred strings, excluding muted/unbarred strings */}
+        {(() => {
+          if (!barre || barre < startFret || barre >= startFret + fretCount) return null;
+          const barredIndices = displayFrets.map((f, idx) => (f >= barre ? idx : -1)).filter(idx => idx !== -1);
+          if (barredIndices.length < 2) return null;
+          const firstString = barredIndices[0];
+          const lastString = barredIndices[barredIndices.length - 1];
+          const x = paddingX + firstString * stringSpacing - 4;
+          const barWidth = (lastString - firstString) * stringSpacing + 8;
+          const y = paddingY + (barre - startFret) * fretSpacing + fretSpacing / 4;
+
+          return (
+            <rect
+              x={x}
+              y={y}
+              width={barWidth}
+              height={fretSpacing / 2}
+              rx={fretSpacing / 4}
+              fill="var(--foreground, #09090b)"
+            />
+          );
+        })()}
 
         {/* Finger dots, mutes, and opens */}
-        {frets.map((fret, i) => {
+        {displayFrets.map((fret, i) => {
           const x = paddingX + i * stringSpacing;
 
           if (fret === -1) {
@@ -380,7 +436,7 @@ export default React.memo(function ChordChart({ chordName, width = 130, height =
             // Fret dot with finger number
             const visualFret = fret - startFret + 1;
             const cy = paddingY + (visualFret - 1) * fretSpacing + fretSpacing / 2;
-            const fingerNum = fingers ? fingers[i] : 0;
+            const fingerNum = displayFingers ? displayFingers[i] : 0;
 
             return (
               <g key={`dot-${i}`}>

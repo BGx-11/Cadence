@@ -11,6 +11,10 @@ export default function SettingsBar({
   capoFret,
   playbackRate,
   onPlaybackRateChange,
+  leftHanded,
+  onLeftHandedChange,
+  speedTrainer,
+  onSpeedTrainerChange,
 }) {
   return (
     <div className="grid-3" style={{ marginBottom: '1.25rem' }}>
@@ -57,7 +61,7 @@ export default function SettingsBar({
           <Guitar size={16} />
           <h4>Fretboard Voicing</h4>
         </div>
-        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'center' }}>
           {['easy', 'intermediate', 'hard'].map((level) => (
             <button
               key={level}
@@ -69,6 +73,14 @@ export default function SettingsBar({
               {level}
             </button>
           ))}
+          <button
+            className={`btn ${leftHanded ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => onLeftHandedChange(!leftHanded)}
+            style={{ fontSize: '0.75rem', padding: '5px 9px', marginLeft: 'auto' }}
+            title="Mirror chord charts for left-handed guitarists"
+          >
+            {leftHanded ? 'Left-Hand' : 'Right-Hand'}
+          </button>
         </div>
         <p className="card-desc">
           {difficulty === 'easy'
@@ -112,8 +124,18 @@ export default function SettingsBar({
           >
             +
           </button>
+          <button
+            className={`btn ${speedTrainer ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => onSpeedTrainerChange(!speedTrainer)}
+            style={{ fontSize: '0.7rem', padding: '4px 8px', marginLeft: 'auto' }}
+            title="Speed Trainer increments tempo by +0.05x on each loop repetition up to 1.00x"
+          >
+            {speedTrainer ? '⚡ Trainer: ON' : 'Trainer: OFF'}
+          </button>
         </div>
-        <p className="card-desc">Practice at adjusted tempo.</p>
+        <p className="card-desc">
+          {speedTrainer ? 'Accelerating by +0.05x every loop repeat.' : 'Practice at adjusted tempo.'}
+        </p>
       </div>
     </div>
   );

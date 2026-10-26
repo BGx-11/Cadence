@@ -41,10 +41,10 @@ export default function ChordSheetView({
           const chordDuration = nextTime - c.time;
           const isActive = i === activeChordIndex;
           const isPast = c.time + chordDuration < currentTime;
-          const ts = analysisResult?.timeSignature || 4;
+          const ts = analysisResult?.timeSignature?.numerator || analysisResult?.timeSignature || 4;
 
           const beatsInChord = analysisResult?.beats
-            ? analysisResult.beats.filter((b) => b >= c.time && b < nextTime).length
+            ? analysisResult.beats.filter((b) => b >= c.time - 0.05 && b < nextTime - 0.05).length
             : Math.round(chordDuration * ((analysisResult?.bpm || 120) / 60));
 
           const beatIdx = analysisResult?.beats
@@ -54,7 +54,7 @@ export default function ChordSheetView({
 
           return (
             <button
-              key={i}
+              key={`${c.chord}-${c.time}`}
               className={`chord-sheet-item ${isActive ? 'active' : ''} ${isPast ? 'past' : ''} ${isNewMeasure ? 'measure-start' : ''}`}
               onClick={() => onSeek(c.time)}
               title={`Click to jump to ${c.chord} at ${formatTime(c.time)}`}

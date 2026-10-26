@@ -1,7 +1,7 @@
 "use client";
 
-import React from 'react';
-import { Music } from 'lucide-react';
+import React, { useState } from 'react';
+import { Music, Edit2, Check, RotateCcw, X } from 'lucide-react';
 import NowPlayingHero from '@/components/NowPlayingHero';
 import ChordChart from '@/components/ChordChart';
 
@@ -23,7 +23,11 @@ export default function TimelineView({
   timelineTrackRef,
   onSeek,
   formatTime,
+  leftHanded = false,
+  onEditChord,
 }) {
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editValue, setEditValue] = useState('');
   return (
     <div className="glass-panel">
       <div className="section-header" style={{ marginBottom: '0.75rem' }}>
@@ -56,6 +60,7 @@ export default function TimelineView({
           currentTime={currentTime}
           isPlaying={isPlaying}
           formatTime={formatTime}
+          leftHanded={leftHanded}
         />
       )}
 
@@ -79,11 +84,12 @@ export default function TimelineView({
           }}
         >
           {analysisResult?.beats && analysisResult.beats.map((beat, i) => {
-            const ts = analysisResult.timeSignature || 4;
+            if (beat < currentTime - 18 || beat > currentTime + 26) return null;
+            const ts = analysisResult?.timeSignature?.numerator || analysisResult?.timeSignature || 4;
             const isDownbeat = i % ts === 0;
             return (
               <div
-                key={`beat-${i}`}
+                key={`beat-${beat}`}
                 style={{
                   position: 'absolute',
                   left: `${beat * PX_PER_SEC}px`,
@@ -115,6 +121,10 @@ export default function TimelineView({
           {processedChords.map((c, i) => {
             const nextTime = i < processedChords.length - 1 ? processedChords[i + 1].time : (duration || c.time + 4);
             const chordDuration = c.duration || (nextTime - c.time);
+            // Window chord cards around currentTime (-18s to +26s) to reduce DOM footprint from >4000 nodes to <100
+            if (c.time + chordDuration < currentTime - 18 || c.time > currentTime + 26) {
+              return null;
+            }
             const width = Math.max(chordDuration * PX_PER_SEC - 4, 32);
             const leftPos = c.time * PX_PER_SEC;
             const isActive = i === activeChordIndex;
@@ -129,7 +139,7 @@ export default function TimelineView({
 
             return (
               <div
-                key={i}
+                key={`${c.chord}-${c.time}`}
                 className={`chord-card ${isActive ? 'active' : isPast ? 'past' : 'upcoming'}`}
                 style={{
                   left: `${leftPos}px`,
@@ -147,10 +157,112 @@ export default function TimelineView({
                 )}
 
                 <div className="chord-card-inner">
-                  {/* Leading edge header */}
+                  {/* Leading edge header with Roman numeral & Edit capability (FEAT-29, FEAT-34) */}
                   <div className="chord-card-header">
-                    <span className="chord-card-name">{c.chord}</span>
-                    <span className="chord-card-time">{formatTime(c.time)}</span>
+                    {editingIndex === i ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '3px', width: '100%' }} onClick={e => e.stopPropagation()}>
+                        <input
+                          autoFocus
+                          value={editValue}
+                          onChange={e => setEditValue(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              if (onEditChord) onEditChord(i, editValue.trim());
+                              setEditingIndex(null);
+                            } else if (e.key === 'Escape') {
+                              setEditingIndex(null);
+                            }
+                          }}
+                          style={{
+                            width: '48px',
+                            fontSize: '0.85rem',
+                            fontWeight: 700,
+                            padding: '1px 4px',
+                            borderRadius: 'var(--radius-sm)',
+                            border: '1px solid var(--border-strong)',
+                            background: 'var(--bg)',
+                            color: 'var(--foreground)',
+                            fontFamily: 'var(--font-sans)',
+                          }}
+                        />
+                        <button
+                          className="btn btn-primary"
+                          style={{ padding: '2px 5px', minWidth: 'auto', height: '22px' }}
+                          onClick={() => {
+                            if (onEditChord) onEditChord(i, editValue.trim());
+                            setEditingIndex(null);
+                          }}
+                          title="Save chord"
+                        >
+                          <Check size={10} />
+                        </button>
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '2px 5px', minWidth: 'auto', height: '22px' }}
+                          onClick={() => setEditingIndex(null)}
+                          title="Cancel"
+                        >
+                          <X size={10} />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <span className="chord-card-name" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          {c.chord}
+                          {c.romanNumeral && (
+                            <span style={{
+                              fontSize: '0.625rem',
+                              fontFamily: 'var(--font-mono)',
+                              color: 'var(--foreground-dim)',
+                              fontWeight: 600,
+                              lineHeight: 1
+                            }}>
+                              {c.romanNumeral}
+                            </span>
+                          )}
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '2px', marginLeft: 'auto' }}>
+                          {c.isUserEdited && onEditChord && (
+                            <button
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                padding: '2px',
+                                color: 'var(--foreground-muted)'
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onEditChord(i, null);
+                              }}
+                              title={`Revert to detected: ${c.originalChord}`}
+                            >
+                              <RotateCcw size={10} />
+                            </button>
+                          )}
+                          {onEditChord && (
+                            <button
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                padding: '2px',
+                                color: 'var(--foreground-dim)'
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingIndex(i);
+                                setEditValue(c.chord);
+                              }}
+                              title="Edit chord (FEAT-29)"
+                            >
+                              <Edit2 size={10} />
+                            </button>
+                          )}
+                          <span className="chord-card-time">{formatTime(c.time)}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   {/* Beat dots if card width allows */}
@@ -171,7 +283,7 @@ export default function TimelineView({
                   {/* Chord diagram if width allows */}
                   {width >= 90 && (
                     <div className="chord-card-diagram">
-                      <ChordChart chordName={c.chord} width={Math.min(110, width - 16)} height={135} />
+                      <ChordChart chordName={c.chord} width={Math.min(110, width - 16)} height={135} leftHanded={leftHanded} />
                     </div>
                   )}
 

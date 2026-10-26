@@ -22,7 +22,8 @@
 
 # Large media & local test assets
 test_songs/
-scripts/
+scripts/*
+!scripts/test_invariants.js
 *.mp4
 *.m4v
 *.mov

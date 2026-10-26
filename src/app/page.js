@@ -13,6 +13,7 @@ import SettingsBar from '@/components/SettingsBar';
 import SectionMarkers from '@/components/SectionMarkers';
 import TimelineView from '@/components/TimelineView';
 import ChordSheetView from '@/components/ChordSheetView';
+import { getRomanNumeral, simplifyChord, transposeChordName } from '@/lib/musicTheory';
 
 export default function Home() {
   const [audioFile, setAudioFile] = useState(null);
@@ -35,6 +36,15 @@ export default function Home() {
   // View mode
   const [viewMode, setViewMode] = useState('timeline'); // 'timeline' | 'sheet'
 
+  // Preferences & Training Modes
+  const [leftHanded, setLeftHanded] = useState(false);
+  const [speedTrainer, setSpeedTrainer] = useState(false);
+  const [userChordOverrides, setUserChordOverrides] = useState({});
+  const speedTrainerRef = useRef(speedTrainer);
+  useEffect(() => { speedTrainerRef.current = speedTrainer; }, [speedTrainer]);
+  const playbackRateRef = useRef(playbackRate);
+  useEffect(() => { playbackRateRef.current = playbackRate; }, [playbackRate]);
+
   // Audio refs & playback
   const audioRef = useRef(null);
   const audioBlobUrlRef = useRef(null);
@@ -48,12 +58,20 @@ export default function Home() {
   // Pixels per second for timeline rendering
   const PX_PER_SEC = 80;
 
-  useEffect(() => {
-    // Initialize Web Worker for audio analysis
-    workerRef.current = new Worker(new URL('../lib/audioWorker.js', import.meta.url), { type: 'module' });
+  const currentAnalysisIdRef = useRef(0);
 
-    workerRef.current.onmessage = (e) => {
-      const { type } = e.data;
+  const initWorker = useCallback(() => {
+    if (workerRef.current) {
+      try { workerRef.current.terminate(); } catch (_) {}
+    }
+    const worker = new Worker(new URL('../lib/audioWorker.js', import.meta.url), { type: 'module' });
+
+    worker.onmessage = (e) => {
+      const { type, analysisId } = e.data;
+      if (analysisId && analysisId !== currentAnalysisIdRef.current) {
+        return; // Ignore stale results from cancelled or older analyses
+      }
+
       if (type === 'ANALYSIS_COMPLETE') {
         const { key, keyStrength, chords, beats, beatStrengths, bpm, timeSignature, sections, waveform } = e.data;
         setAnalysisResult({ key, keyStrength, chords, beats, beatStrengths, bpm, timeSignature, sections, waveform });
@@ -67,6 +85,13 @@ export default function Home() {
         alert("Error analyzing audio: " + e.data.error);
       }
     };
+
+    workerRef.current = worker;
+    return worker;
+  }, []);
+
+  useEffect(() => {
+    initWorker();
 
     return () => {
       workerRef.current?.terminate();
@@ -83,7 +108,7 @@ export default function Home() {
       if (pitchShiftRef.current) pitchShiftRef.current.dispose();
       cancelAnimationFrame(animationRef.current);
     };
-  }, []);
+  }, [initWorker]);
 
   // Dynamic audio routing: route native Audio element through optional pitch shift to destination
   const setupAudioRouting = useCallback((mediaSource, currentTranspose) => {
@@ -119,15 +144,34 @@ export default function Home() {
   }, [playbackRate]);
 
   const updateTimeRef = useRef(null);
+  const lastStateTimeRef = useRef(0);
 
   const updateTime = useCallback(() => {
     if (audioRef.current && !audioRef.current.paused) {
       const cur = audioRef.current.currentTime;
 
+      // Direct DOM update for 60fps hardware-synchronized timeline scrolling
+      if (timelineTrackRef.current) {
+        timelineTrackRef.current.style.transform = `translateX(-${cur * PX_PER_SEC}px)`;
+      }
+      if (beatsTrackRef.current) {
+        beatsTrackRef.current.style.transform = `translateX(-${cur * PX_PER_SEC}px)`;
+      }
+
       // Handle loop points
       if (loopEnabled && loopEnd > loopStart && cur >= loopEnd) {
         audioRef.current.currentTime = loopStart;
         setCurrentTime(loopStart);
+        lastStateTimeRef.current = loopStart;
+
+        // Progressive Tempo Speed Trainer (FEAT-17): Accelerate by +0.05x on each loop repetition up to 1.00x
+        if (speedTrainerRef.current && playbackRateRef.current < 1.0) {
+          const nextRate = Math.min(1.0, Math.round((playbackRateRef.current + 0.05) * 100) / 100);
+          playbackRateRef.current = nextRate;
+          setPlaybackRate(nextRate);
+          if (audioRef.current) audioRef.current.playbackRate = nextRate;
+        }
+
         if (timelineTrackRef.current) {
           timelineTrackRef.current.style.transform = `translateX(-${loopStart * PX_PER_SEC}px)`;
         }
@@ -135,13 +179,10 @@ export default function Home() {
           beatsTrackRef.current.style.transform = `translateX(-${loopStart * PX_PER_SEC}px)`;
         }
       } else {
-        setCurrentTime(cur);
-        // Direct DOM update for 60fps hardware-synchronized timeline scrolling
-        if (timelineTrackRef.current) {
-          timelineTrackRef.current.style.transform = `translateX(-${cur * PX_PER_SEC}px)`;
-        }
-        if (beatsTrackRef.current) {
-          beatsTrackRef.current.style.transform = `translateX(-${cur * PX_PER_SEC}px)`;
+        // Throttle React state updates to ~15fps (every 66ms) to avoid 60fps full-tree re-render thrashing
+        if (Math.abs(cur - lastStateTimeRef.current) >= 0.066 || cur < lastStateTimeRef.current) {
+          lastStateTimeRef.current = cur;
+          setCurrentTime(cur);
         }
       }
 
@@ -202,10 +243,26 @@ export default function Home() {
     setLoopEnabled(false);
     setLoopStart(0);
     setLoopEnd(0);
-  }, []);
+    setUserChordOverrides({});
+
+    // Cancel any in-flight worker job and reinitialize worker
+    currentAnalysisIdRef.current++;
+    initWorker();
+  }, [initWorker]);
 
   const processAudioFile = async (file) => {
     if (!file) return;
+    try { Tone.start(); } catch (_) {}
+
+    // Guard file size (max 100 MB)
+    const MAX_FILE_SIZE = 100 * 1024 * 1024;
+    if (file.size > MAX_FILE_SIZE) {
+      alert(`File is too large (${(file.size / (1024 * 1024)).toFixed(1)} MB). Please select an audio file under 100 MB.`);
+      return;
+    }
+
+    const analysisId = ++currentAnalysisIdRef.current;
+    const worker = initWorker();
 
     if (animationRef.current) {
       cancelAnimationFrame(animationRef.current);
@@ -261,9 +318,20 @@ export default function Home() {
       cancelAnimationFrame(animationRef.current);
     };
 
+    audio.onerror = (e) => {
+      console.error('Audio element playback error:', e);
+      setIsPlaying(false);
+      const code = audio.error?.code;
+      const msg = code === 4 ? 'Audio format or codec not supported for direct playback by this browser.' : 'Audio playback error occurred.';
+      alert(msg);
+    };
+
     try {
       const arrayBuffer = await file.arrayBuffer();
+      if (analysisId !== currentAnalysisIdRef.current) return;
+
       await Tone.start();
+      if (analysisId !== currentAnalysisIdRef.current) return;
       const rawCtx = Tone.getContext().rawContext;
 
       const mediaSource = rawCtx.createMediaElementSource(audio);
@@ -279,26 +347,54 @@ export default function Home() {
       setupAudioRouting(mediaSource, transpose);
 
       const audioBuffer = await Tone.context.decodeAudioData(arrayBuffer.slice(0));
+      if (analysisId !== currentAnalysisIdRef.current) return;
+
+      // Guard audio duration (max 20 minutes)
+      const MAX_DURATION_SEC = 20 * 60;
+      if (audioBuffer.duration > MAX_DURATION_SEC) {
+        setIsAnalyzing(false);
+        alert(`Track duration is too long (${(audioBuffer.duration / 60).toFixed(1)} min). Maximum supported duration is 20 minutes.`);
+        return;
+      }
+
       setDuration(audioBuffer.duration);
 
-      // Downmix stereo to mono & resample cleanly to 44100 Hz via native OfflineAudioContext
       const targetRate = 44100;
-      const targetLength = Math.max(1, Math.ceil(audioBuffer.duration * targetRate));
-      const OfflineCtxClass = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-      const offlineCtx = new OfflineCtxClass(1, targetLength, targetRate);
-      
-      const source = offlineCtx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(offlineCtx.destination);
-      source.start(0);
+      let copiedBuffer;
 
-      const renderedBuffer = await offlineCtx.startRendering();
-      const channelData = renderedBuffer.getChannelData(0);
-      const copiedBuffer = channelData.slice(0).buffer;
+      // Fast-path: if audio is already 44.1 kHz, downmix in-memory without spawning OfflineAudioContext
+      if (audioBuffer.sampleRate === targetRate) {
+        const len = audioBuffer.length;
+        const mono = new Float32Array(len);
+        const numChannels = audioBuffer.numberOfChannels;
+        for (let ch = 0; ch < numChannels; ch++) {
+          const chData = audioBuffer.getChannelData(ch);
+          for (let i = 0; i < len; i++) {
+            mono[i] += chData[i] / numChannels;
+          }
+        }
+        copiedBuffer = mono.buffer;
+      } else {
+        // Resample cleanly via native OfflineAudioContext
+        const targetLength = Math.max(1, Math.ceil(audioBuffer.duration * targetRate));
+        const OfflineCtxClass = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+        const offlineCtx = new OfflineCtxClass(1, targetLength, targetRate);
+        
+        const source = offlineCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(offlineCtx.destination);
+        source.start(0);
 
-      workerRef.current.postMessage(
+        const renderedBuffer = await offlineCtx.startRendering();
+        if (analysisId !== currentAnalysisIdRef.current) return;
+        const channelData = renderedBuffer.getChannelData(0);
+        copiedBuffer = channelData.slice(0).buffer;
+      }
+
+      worker.postMessage(
         {
           type: 'ANALYZE_AUDIO',
+          analysisId,
           audioData: new Float32Array(copiedBuffer),
           sampleRate: targetRate,
         },
@@ -332,6 +428,10 @@ export default function Home() {
 
   const seekTo = useCallback((time) => {
     const clampedTime = Math.max(0, Math.min(duration, time));
+    // If seeking outside active loop, auto-disable loop to prevent playhead trap
+    if (loopEnabled && (clampedTime < loopStart - 0.1 || clampedTime > loopEnd + 0.1)) {
+      setLoopEnabled(false);
+    }
     if (audioRef.current) {
       audioRef.current.currentTime = clampedTime;
     }
@@ -342,35 +442,47 @@ export default function Home() {
     if (beatsTrackRef.current) {
       beatsTrackRef.current.style.transform = `translateX(-${clampedTime * PX_PER_SEC}px)`;
     }
-  }, [duration, PX_PER_SEC]);
+  }, [duration, PX_PER_SEC, loopEnabled, loopStart, loopEnd]);
 
   const skipForward = () => seekTo(currentTime + 5);
   const skipBackward = () => seekTo(currentTime - 5);
 
+  // Global Keyboard Shortcuts (UI-09): Space (Play/Pause), Left/Right (Seek ±5s), [ ] (Loop In/Out), + - (Transpose)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName)) return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePlay();
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault();
+        seekTo(Math.max(0, currentTime - 5));
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault();
+        seekTo(Math.min(duration, currentTime + 5));
+      } else if (e.key === '[' && audioRef.current) {
+        e.preventDefault();
+        setLoopStart(currentTime);
+        setLoopEnabled(true);
+      } else if (e.key === ']' && audioRef.current) {
+        e.preventDefault();
+        setLoopEnd(currentTime);
+        setLoopEnabled(true);
+      } else if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        setTranspose(t => t + 1);
+      } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        setTranspose(t => t - 1);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [togglePlay, seekTo, currentTime, duration]);
+
   // ─── Chord Processing ──────────────────────────────────────────────
-
-  const transposeChordName = useCallback((chord, steps) => {
-    const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-    const flatToSharp = { 'Db': 'C#', 'Eb': 'D#', 'Gb': 'F#', 'Ab': 'G#', 'Bb': 'A#' };
-
-    const rootMatch = chord.match(/^[A-G][#b]?/);
-    if (!rootMatch) return chord;
-    let root = rootMatch[0];
-    root = flatToSharp[root] || root;
-
-    const rootIndex = notes.indexOf(root);
-    if (rootIndex === -1) return chord;
-
-    let newIndex = (rootIndex + steps) % 12;
-    if (newIndex < 0) newIndex += 12;
-
-    return notes[newIndex] + chord.slice(rootMatch[0].length);
-  }, []);
-
-  const simplifyChord = useCallback((chord) => {
-    const rootMatch = chord.match(/^[A-G][#b]?m?/);
-    return rootMatch ? rootMatch[0] : chord;
-  }, []);
 
   const calculateBestCapo = useCallback((chords) => {
     const easyRoots = ['C', 'G', 'D', 'A', 'E', 'Am', 'Em', 'Dm'];
@@ -390,7 +502,19 @@ export default function Home() {
       }
     }
     return bestCapo;
-  }, [transposeChordName, simplifyChord]);
+  }, []);
+
+  const handleEditChord = useCallback((index, newChord) => {
+    setUserChordOverrides(prev => {
+      const updated = { ...prev };
+      if (!newChord || newChord.trim() === '') {
+        delete updated[index];
+      } else {
+        updated[index] = newChord.trim();
+      }
+      return updated;
+    });
+  }, []);
 
   const { processedChords, capoFret } = useMemo(() => {
     let processed = [];
@@ -410,15 +534,20 @@ export default function Home() {
         capo = calculateBestCapo(currentChords);
         processed = currentChords.map(c => ({
           ...c,
+          originalChord: c.originalChord || c.chord,
           chord: simplifyChord(transposeChordName(c.chord, -capo))
         }));
       } else if (difficulty === 'intermediate') {
         processed = currentChords.map(c => ({
           ...c,
+          originalChord: c.originalChord || c.chord,
           chord: simplifyChord(c.chord)
         }));
       } else {
-        processed = currentChords;
+        processed = currentChords.map(c => ({
+          ...c,
+          originalChord: c.originalChord || c.chord
+        }));
       }
 
       // Consolidate consecutive identical chords produced by simplification or transposition
@@ -438,15 +567,23 @@ export default function Home() {
         }
       }
 
-      // Ensure seamless duration tiling so each chord card extends to the start of the next chord
+      // Ensure seamless duration tiling, user chord edits (FEAT-29), and Roman numerals (FEAT-34)
       for (let i = 0; i < merged.length; i++) {
         const nextTime = i < merged.length - 1 ? merged[i + 1].time : (duration || merged[i].time + (merged[i].duration || 4));
-        merged[i].duration = Math.max(0.8, nextTime - merged[i].time);
+        merged[i].duration = Math.max(0.01, nextTime - merged[i].time);
+
+        const override = userChordOverrides[i];
+        if (override) {
+          merged[i].originalChord = merged[i].originalChord || merged[i].chord;
+          merged[i].chord = override;
+          merged[i].isUserEdited = true;
+        }
+        merged[i].romanNumeral = getRomanNumeral(merged[i].chord, analysisResult.key);
       }
       processed = merged;
     }
     return { processedChords: processed, capoFret: capo };
-  }, [analysisResult, difficulty, transpose, calculateBestCapo, simplifyChord, transposeChordName, duration]);
+  }, [analysisResult, difficulty, transpose, calculateBestCapo, duration, userChordOverrides]);
 
   // Active chord index
   let activeChordIndex = -1;
@@ -491,6 +628,11 @@ export default function Home() {
 
   // Set loop to a section
   const setLoopToSection = (section) => {
+    // If clicking the currently active looped section, toggle the loop off
+    if (loopEnabled && Math.abs(loopStart - section.startTime) < 0.05 && Math.abs(loopEnd - section.endTime) < 0.05) {
+      setLoopEnabled(false);
+      return;
+    }
     setLoopStart(section.startTime);
     setLoopEnd(section.endTime);
     setLoopEnabled(true);
@@ -573,6 +715,10 @@ export default function Home() {
             capoFret={capoFret}
             playbackRate={playbackRate}
             onPlaybackRateChange={setPlaybackRate}
+            leftHanded={leftHanded}
+            onLeftHandedChange={setLeftHanded}
+            speedTrainer={speedTrainer}
+            onSpeedTrainerChange={setSpeedTrainer}
           />
 
           {/* ─── Section Markers ───────────────────────────────────── */}
@@ -583,8 +729,12 @@ export default function Home() {
             loopStart={loopStart}
             loopEnd={loopEnd}
             onSectionClick={(sec) => {
-              seekTo(sec.startTime);
-              setLoopToSection(sec);
+              if (loopEnabled && Math.abs(loopStart - sec.startTime) < 0.05 && Math.abs(loopEnd - sec.endTime) < 0.05) {
+                setLoopEnabled(false);
+              } else {
+                seekTo(sec.startTime);
+                setLoopToSection(sec);
+              }
             }}
             onClearLoop={() => setLoopEnabled(false)}
             formatTime={formatTime}
@@ -625,11 +775,13 @@ export default function Home() {
               isPlaying={isPlaying}
               difficulty={difficulty}
               capoFret={capoFret}
+              leftHanded={leftHanded}
               PX_PER_SEC={PX_PER_SEC}
               beatsTrackRef={beatsTrackRef}
               timelineTrackRef={timelineTrackRef}
               onSeek={seekTo}
               formatTime={formatTime}
+              onEditChord={handleEditChord}
             />
           )}
 

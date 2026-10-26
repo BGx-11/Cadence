@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { UploadCloud, Music2, Loader2 } from 'lucide-react';
+import * as Tone from 'tone';
 
 const SAMPLE_TRACKS = [
   { name: 'Ed Sheeran – Perfect', file: '/songs/02_Ed_Sheeran_Perfect.mp3' },
@@ -16,7 +17,10 @@ export default function UploadZone({ onFileSelected }) {
     e.preventDefault();
     e.stopPropagation();
     const file = e.dataTransfer?.files?.[0];
-    if (file) onFileSelected(file);
+    if (file) {
+      try { Tone.start(); } catch (_) {}
+      onFileSelected(file);
+    }
   };
 
   const handleDragOver = (e) => {
@@ -26,12 +30,16 @@ export default function UploadZone({ onFileSelected }) {
 
   const handleInputChange = (e) => {
     const file = e.target.files?.[0];
-    if (file) onFileSelected(file);
+    if (file) {
+      try { Tone.start(); } catch (_) {}
+      onFileSelected(file);
+    }
     e.target.value = '';
   };
 
   const loadSampleTrack = async (sample) => {
     if (loadingTrack) return;
+    try { Tone.start(); } catch (_) {}
     setLoadingTrack(sample.name);
     try {
       const res = await fetch(sample.file, { cache: 'no-cache' });

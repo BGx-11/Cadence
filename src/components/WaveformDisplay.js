@@ -74,21 +74,18 @@ export default React.memo(function WaveformDisplay({
     }
 
     // Draw waveform bars with subtle alternating tonal separation by chord
+    let chordIdx = 0;
+    const numChords = chords ? chords.length : 0;
+
     for (let i = 0; i < waveform.length; i++) {
       const x = (i / waveform.length) * w;
       const amp = waveform[i];
       const barH = Math.max(1.5, amp * (h * 0.82));
       const time = (i / waveform.length) * duration;
 
-      // Find which chord index this corresponds to
-      let chordIdx = 0;
-      if (chords && chords.length > 0) {
-        for (let c = chords.length - 1; c >= 0; c--) {
-          if (time >= chords[c].time) {
-            chordIdx = c;
-            break;
-          }
-        }
+      // Monotonically advance chord index in O(1) amortized time
+      while (chordIdx < numChords - 1 && time >= chords[chordIdx + 1].time) {
+        chordIdx++;
       }
 
       const isPlayed = x <= playheadX;
@@ -161,11 +158,30 @@ export default React.memo(function WaveformDisplay({
     onSeek(ratio * duration);
   }, [duration, onSeek]);
 
+  const handleKeyDown = useCallback((e) => {
+    if (!duration || !onSeek) return;
+    const step = 5; // 5-second scrub step
+    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      onSeek(Math.min(duration, currentTime + step));
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      onSeek(Math.max(0, currentTime - step));
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      onSeek(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      onSeek(duration);
+    }
+  }, [duration, currentTime, onSeek]);
+
   return (
     <div
       ref={containerRef}
       className="waveform-container"
       onClick={handlePointer}
+      onKeyDown={handleKeyDown}
       role="slider"
       aria-label="Audio waveform timeline"
       aria-valuemin={0}
