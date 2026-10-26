@@ -73,7 +73,7 @@ export default function UploadZone({ onFileSelected }) {
       >
         <input
           type="file"
-          accept="audio/*"
+          accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac,.aac"
           onChange={handleInputChange}
           id="audio-upload"
           style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}

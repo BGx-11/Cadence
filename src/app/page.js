@@ -205,6 +205,7 @@ export default function Home() {
     if (audioRef.current) {
       try {
         audioRef.current.pause();
+        audioRef.current.onerror = null;
         audioRef.current.onended = null;
         audioRef.current.ontimeupdate = null;
         audioRef.current.src = '';
@@ -271,7 +272,9 @@ export default function Home() {
     if (audioRef.current) {
       try {
         audioRef.current.pause();
+        audioRef.current.onerror = null;
         audioRef.current.onended = null;
+        audioRef.current.ontimeupdate = null;
         audioRef.current.src = '';
         audioRef.current.load();
       } catch (_) {}
@@ -297,8 +300,26 @@ export default function Home() {
     setIsPlaying(false);
     setAnalysisProgress({ stage: 'Decoding & resampling audio...', progress: 0.05 });
 
+    // Deduce and normalize audio MIME type if missing or generic (e.g. Windows file drop)
+    const ext = (file.name || '').split('.').pop()?.toLowerCase();
+    const MIME_MAP = {
+      mp3: 'audio/mpeg',
+      wav: 'audio/wav',
+      wave: 'audio/wav',
+      ogg: 'audio/ogg',
+      oga: 'audio/ogg',
+      opus: 'audio/opus',
+      flac: 'audio/flac',
+      m4a: 'audio/mp4',
+      aac: 'audio/aac',
+      weba: 'audio/webm',
+      webm: 'audio/webm'
+    };
+    const targetMime = file.type || MIME_MAP[ext] || 'audio/mpeg';
+    const normalizedBlob = file.type ? file : file.slice(0, file.size, targetMime);
+
     // Initialize native Audio element for hardware-synchronized playback
-    const blobUrl = URL.createObjectURL(file);
+    const blobUrl = URL.createObjectURL(normalizedBlob);
     audioBlobUrlRef.current = blobUrl;
 
     const audio = new Audio(blobUrl);
@@ -319,11 +340,18 @@ export default function Home() {
     };
 
     audio.onerror = (e) => {
-      console.error('Audio element playback error:', e);
+      // Discard error if audio element was unmounted, superseded, or cleared
+      if (
+        !audioRef.current ||
+        audioRef.current !== audio ||
+        !audio.src ||
+        audio.src === '' ||
+        audio.src === window.location.href
+      ) {
+        return;
+      }
+      console.warn('Audio element playback notice:', e, audio.error);
       setIsPlaying(false);
-      const code = audio.error?.code;
-      const msg = code === 4 ? 'Audio format or codec not supported for direct playback by this browser.' : 'Audio playback error occurred.';
-      alert(msg);
     };
 
     try {
@@ -412,6 +440,11 @@ export default function Home() {
     if (!audioRef.current) return;
     try {
       await Tone.start();
+      if (audioRef.current.error) {
+        console.warn("Audio element error state:", audioRef.current.error);
+        setIsPlaying(false);
+        return;
+      }
       if (audioRef.current.paused) {
         await audioRef.current.play();
         setIsPlaying(true);
@@ -423,6 +456,7 @@ export default function Home() {
       }
     } catch (err) {
       console.error("Playback error:", err);
+      setIsPlaying(false);
     }
   };
 
