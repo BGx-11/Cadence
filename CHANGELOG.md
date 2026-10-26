@@ -44,11 +44,12 @@ Comprehensive technical audit, DSP mathematical stabilization, performance profi
 - **DSP-04**: Replaced phase-biased downbeat detection with phase-invariant evaluation testing downbeat offsets across 3/4, 4/4, and compound 6/8 meter.
 - **DSP-05**: Replaced 6-letter clamping (`Math.min(labelIdx, 5)`) with dynamic alphabet generation (`A..Z`, `A1..`), preventing complex tracks from collapsing into section `'F'`.
 - **DSP-08**: Rebalanced `CHORD_TEMPLATES` with defining 3rds weighted `0.85` over common 5ths (`0.65`) and removed spurious `rotated[7] * 0.06` fifth boost, preventing bass notes from triggering false triad matches.
-- **DSP-09**: Activated post-Viterbi 1-beat flicker smoother to absorb transient $A \to X \to A$ excursions caused by percussive drum spikes or vocal vibrato.
+- **DSP-09**: Refined post-Viterbi 1-beat excursion smoother to evaluate competing chord scores (`currentScore < neighborScore * 1.25 && beatDuration < 0.75`), preserving genuine quick chord transitions while absorbing transient noise flickers.
 - **DSP-10**: Normalized chord tone energy against active bins (`avgChord` vs `avgNonChord` contrast ratio) in `scoreChordMatch` and `computeChordConfidence`, eliminating the spurious +0.0292 noise boost on 4-note 7th chords.
 - **DSP-11**: Added explicit `.delete()` calls on `rhythm.estimates` and `rhythm.bpmIntervals` C++ `VectorFloat` instances in `RhythmExtractor2013`, resolving linear WASM heap memory leaks.
 - **DSP-12**: Patched `initEssentia()` to verify `calledRun` and `EssentiaJS` before binding `onRuntimeInitialized`, eliminating hangs on fast WASM initialization.
-- **DSP-13**: Added explicit 97th state `N.C.` (No Chord / Silence / Ambient) to `audioWorker.js` state space (`NUM_STATES = 97`) with calibrated energy emission gating (`totalEnergy < 0.035`), zero-vector quiet frames preservation, and transition probabilities, preventing silence/percussion gaps from being falsely labeled as chords.
+- **DSP-13**: Added explicit 97th state `N.C.` (No Chord / Silence / Ambient) to `workerDSP.js` and `audioWorker.js` (`NUM_STATES = 97`) with pre-normalization raw energy and RMS scaling, preventing low-volume audio from being artificially blown up by `normalizeHPCP()`.
+- **DSP-14**: Extracted pure DSP and chord detection primitives into `src/lib/workerDSP.js`, ensuring identical, testable implementations shared between the Web Worker and invariant test suite.
 
 #### Playback & Concurrency
 - **PERF-07**: Introduced `currentAnalysisIdRef` and worker lifecycle re-initialization in `processAudioFile` to prevent race conditions when uploading new tracks during in-flight decoding.

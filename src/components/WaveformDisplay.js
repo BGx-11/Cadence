@@ -102,9 +102,15 @@ export default React.memo(function WaveformDisplay({
 
     // Draw beat ticks
     if (beats && beats.length > 0 && duration > 0) {
+      const tsNumerator = typeof timeSignature === 'object' && timeSignature !== null
+        ? timeSignature.numerator || 4
+        : typeof timeSignature === 'number'
+        ? timeSignature
+        : parseInt(String(timeSignature).split('/')[0], 10) || 4;
+
       for (let i = 0; i < beats.length; i++) {
         const x = (beats[i] / duration) * w;
-        const isDownbeat = i % timeSignature === 0;
+        const isDownbeat = i % tsNumerator === 0;
 
         ctx.strokeStyle = isDownbeat ? 'rgba(9, 9, 11, 0.22)' : 'rgba(9, 9, 11, 0.07)';
         ctx.lineWidth = isDownbeat ? 1 : 0.5;
