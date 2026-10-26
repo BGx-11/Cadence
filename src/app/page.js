@@ -13,7 +13,7 @@ import SettingsBar from '@/components/SettingsBar';
 import SectionMarkers from '@/components/SectionMarkers';
 import TimelineView from '@/components/TimelineView';
 import ChordSheetView from '@/components/ChordSheetView';
-import { getRomanNumeral, simplifyChord, transposeChordName } from '@/lib/musicTheory';
+import { getRomanNumeral, simplifyChord, transposeChordName, transposeKey } from '@/lib/musicTheory';
 
 export default function Home() {
   const [audioFile, setAudioFile] = useState(null);
@@ -430,13 +430,14 @@ export default function Home() {
       );
 
     } catch (err) {
+      if (analysisId !== currentAnalysisIdRef.current) return;
       console.error("Error setting up audio:", err.message || err);
       setIsAnalyzing(false);
       alert("Could not decode audio: " + (err.message || String(err)));
     }
   };
 
-  const togglePlay = async () => {
+  const togglePlay = useCallback(async () => {
     if (!audioRef.current) return;
     try {
       await Tone.start();
@@ -458,7 +459,7 @@ export default function Home() {
       console.error("Playback error:", err);
       setIsPlaying(false);
     }
-  };
+  }, [updateTime]);
 
   const seekTo = useCallback((time) => {
     const clampedTime = Math.max(0, Math.min(duration, time));
@@ -484,7 +485,9 @@ export default function Home() {
   // Global Keyboard Shortcuts (UI-09): Space (Play/Pause), Left/Right (Seek ±5s), [ ] (Loop In/Out), + - (Transpose)
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target?.tagName)) return;
+      const tag = e.target?.tagName;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) || e.target?.isContentEditable) return;
+      if (e.code === 'Space' && (tag === 'BUTTON' || e.target?.getAttribute('role') === 'button')) return;
 
       if (e.code === 'Space') {
         e.preventDefault();
@@ -538,25 +541,39 @@ export default function Home() {
     return bestCapo;
   }, []);
 
-  const handleEditChord = useCallback((index, newChord) => {
+  const handleEditChord = useCallback((chordId, newChord) => {
     setUserChordOverrides(prev => {
       const updated = { ...prev };
       if (!newChord || newChord.trim() === '') {
-        delete updated[index];
+        delete updated[chordId];
       } else {
-        updated[index] = newChord.trim();
+        // If currently transposed, normalize back to base detected pitch
+        const baseChord = transpose !== 0 ? transposeChordName(newChord.trim(), -transpose) : newChord.trim();
+        updated[chordId] = baseChord;
       }
       return updated;
     });
-  }, []);
+  }, [transpose]);
 
   const { processedChords, capoFret } = useMemo(() => {
     let processed = [];
     let capo = 0;
 
     if (analysisResult && analysisResult.chords) {
-      let currentChords = analysisResult.chords;
+      // 1. Attach stable IDs and apply user overrides to base detected chords (BUG-28)
+      let currentChords = analysisResult.chords.map(c => {
+        const chordId = c.id || `chord-${Number(c.time).toFixed(2)}`;
+        const override = userChordOverrides[chordId];
+        return {
+          ...c,
+          id: chordId,
+          originalChord: c.originalChord || c.chord,
+          chord: override || c.chord,
+          isUserEdited: Boolean(override)
+        };
+      });
 
+      // 2. Transposition
       if (transpose !== 0) {
         currentChords = currentChords.map(c => ({
           ...c,
@@ -564,27 +581,23 @@ export default function Home() {
         }));
       }
 
+      // 3. Difficulty / Capo voicing
       if (difficulty === 'easy') {
         capo = calculateBestCapo(currentChords);
         processed = currentChords.map(c => ({
           ...c,
-          originalChord: c.originalChord || c.chord,
           chord: simplifyChord(transposeChordName(c.chord, -capo))
         }));
       } else if (difficulty === 'intermediate') {
         processed = currentChords.map(c => ({
           ...c,
-          originalChord: c.originalChord || c.chord,
           chord: simplifyChord(c.chord)
         }));
       } else {
-        processed = currentChords.map(c => ({
-          ...c,
-          originalChord: c.originalChord || c.chord
-        }));
+        processed = currentChords;
       }
 
-      // Consolidate consecutive identical chords produced by simplification or transposition
+      // 4. Consolidate consecutive identical chords produced by simplification or transposition
       const merged = [];
       for (const c of processed) {
         if (merged.length === 0) {
@@ -595,24 +608,22 @@ export default function Home() {
             last.duration = (c.time + (c.duration || 0)) - last.time;
             last.beatCount = (last.beatCount || 1) + (c.beatCount || 1);
             last.confidence = Math.max(last.confidence || 0.5, c.confidence || 0.5);
+            last.isUserEdited = last.isUserEdited || c.isUserEdited;
           } else {
             merged.push({ ...c });
           }
         }
       }
 
-      // Ensure seamless duration tiling, user chord edits (FEAT-29), and Roman numerals (FEAT-34)
+      // 5. Ensure seamless duration tiling and Roman numerals (BUG-27)
+      // Transpose key alongside chords; in easy mode evaluate relative to capo shape
+      const soundingKey = transposeKey(analysisResult.key, transpose);
+      const effectiveKey = difficulty === 'easy' ? transposeKey(soundingKey, -capo) : soundingKey;
+
       for (let i = 0; i < merged.length; i++) {
         const nextTime = i < merged.length - 1 ? merged[i + 1].time : (duration || merged[i].time + (merged[i].duration || 4));
         merged[i].duration = Math.max(0.01, nextTime - merged[i].time);
-
-        const override = userChordOverrides[i];
-        if (override) {
-          merged[i].originalChord = merged[i].originalChord || merged[i].chord;
-          merged[i].chord = override;
-          merged[i].isUserEdited = true;
-        }
-        merged[i].romanNumeral = getRomanNumeral(merged[i].chord, analysisResult.key);
+        merged[i].romanNumeral = getRomanNumeral(merged[i].chord, effectiveKey);
       }
       processed = merged;
     }

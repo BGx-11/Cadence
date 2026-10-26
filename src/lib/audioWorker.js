@@ -18,6 +18,7 @@ import {
   computeEmissionScores,
   buildTransitionMatrix,
   viterbiDecode,
+  smoothExcursions,
   consolidateChords,
   detectTimeSignature,
   detectSections,
@@ -333,18 +334,7 @@ self.onmessage = async (e) => {
 
           // Post-processing: Consolidate transient 1-beat chord flickers (A -> X -> A)
           // Confidence & score aware: only smooth excursions if evidence for X is weak/contested
-          const smoothedPath = [...path];
-          for (let b = 1; b < path.length - 1; b++) {
-            if (smoothedPath[b - 1] === smoothedPath[b + 1] && smoothedPath[b] !== smoothedPath[b - 1]) {
-              const beatDuration = (rawBeats[b + 1] || totalDuration) - rawBeats[b];
-              const neighborScore = emissions[b][smoothedPath[b - 1]];
-              const currentScore = emissions[b][smoothedPath[b]];
-              const isWeakExcursion = currentScore < neighborScore * 1.25;
-              if (isWeakExcursion && beatDuration < 0.75) {
-                smoothedPath[b] = smoothedPath[b - 1];
-              }
-            }
-          }
+          const smoothedPath = smoothExcursions(path, emissions, rawBeats, totalDuration);
 
           // Convert to chord events with true harmonic template match confidence
           const rawChords = [];

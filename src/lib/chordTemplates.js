@@ -1,12 +1,9 @@
 /**
- * Advanced Chord Template Matching Engine
+ * Advanced Chord Template Matching Engine (Legacy Reference)
  * 
- * Uses perceptually-weighted chord templates with cosine similarity scoring
- * and a Hidden Markov Model (Viterbi decoding) for temporally coherent
- * chord sequence estimation.
- * 
- * This replaces the basic binary template matching and the `chord-recognition`
- * npm package with a significantly more accurate system.
+ * @deprecated This module is preserved for reference. Production chord templates,
+ * negative pitch-class inhibition, Viterbi decoding, and consolidation are now unified
+ * and maintained in `src/lib/workerDSP.js`.
  */
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];

@@ -1,5 +1,6 @@
 'use client';
 import React, { useRef, useEffect, useCallback } from 'react';
+import { isDownbeat } from '@/lib/musicTheory';
 
 /**
  * WaveformDisplay — Minimalist Monochrome Waveform
@@ -102,21 +103,15 @@ export default React.memo(function WaveformDisplay({
 
     // Draw beat ticks
     if (beats && beats.length > 0 && duration > 0) {
-      const tsNumerator = typeof timeSignature === 'object' && timeSignature !== null
-        ? timeSignature.numerator || 4
-        : typeof timeSignature === 'number'
-        ? timeSignature
-        : parseInt(String(timeSignature).split('/')[0], 10) || 4;
-
       for (let i = 0; i < beats.length; i++) {
         const x = (beats[i] / duration) * w;
-        const isDownbeat = i % tsNumerator === 0;
+        const downbeat = isDownbeat(i, timeSignature);
 
-        ctx.strokeStyle = isDownbeat ? 'rgba(9, 9, 11, 0.22)' : 'rgba(9, 9, 11, 0.07)';
-        ctx.lineWidth = isDownbeat ? 1 : 0.5;
+        ctx.strokeStyle = downbeat ? 'rgba(9, 9, 11, 0.22)' : 'rgba(9, 9, 11, 0.07)';
+        ctx.lineWidth = downbeat ? 1 : 0.5;
         ctx.beginPath();
-        ctx.moveTo(x, isDownbeat ? 0 : h * 0.3);
-        ctx.lineTo(x, isDownbeat ? h : h * 0.7);
+        ctx.moveTo(x, downbeat ? 0 : h * 0.3);
+        ctx.lineTo(x, downbeat ? h : h * 0.7);
         ctx.stroke();
       }
     }

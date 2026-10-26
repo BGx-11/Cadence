@@ -59,6 +59,20 @@ export function simplifyChord(chord) {
 }
 
 /**
+ * Transpose a musical key signature (e.g. 'C major' -> 'D major' with steps = 2).
+ */
+export function transposeKey(keyString, steps) {
+  if (!keyString) return '';
+  const parts = keyString.trim().split(/\s+/);
+  if (parts.length === 0) return keyString;
+  const transposedRoot = transposeChordName(parts[0], steps);
+  if (parts.length > 1) {
+    return `${transposedRoot} ${parts.slice(1).join(' ')}`;
+  }
+  return transposedRoot;
+}
+
+/**
  * Derive Roman Numeral harmonic degree (FEAT-34) from a chord and detected key.
  * e.g. In C Major: C -> I, Dm -> ii, G7 -> V7, Am -> vi, F -> IV, Bb -> bVII
  * e.g. In A Minor: Am -> i, C -> III, Dm -> iv, E -> V, F -> VI, G -> VII
@@ -90,9 +104,10 @@ export function getRomanNumeral(chord, keyString) {
     6: 'bV', 7: 'V', 8: 'bVI', 9: 'vi', 10: 'bVII', 11: 'vii'
   };
 
+  // BUG-31 Fix: Correct chromatic minor key degree mappings (distinguish 4=#III from 5=iv)
   const minorDegrees = {
-    0: 'i', 1: 'bII', 2: 'ii', 3: 'III', 4: 'iv', 5: 'iv',
-    6: 'bV', 7: 'v', 8: 'VI', 9: 'vi', 10: 'VII', 11: 'vii'
+    0: 'i', 1: 'bII', 2: 'ii', 3: 'III', 4: '#III', 5: 'iv',
+    6: 'bV', 7: 'v', 8: 'VI', 9: '#vi', 10: 'VII', 11: 'vii'
   };
 
   let numeral = (isMinorKey ? minorDegrees[semitones] : majorDegrees[semitones]) || 'I';
@@ -112,4 +127,27 @@ export function getRomanNumeral(chord, keyString) {
   else if (chordExt.startsWith('sus')) numeral += chordExt;
 
   return numeral;
+}
+
+/**
+ * Format a time signature value (object, string, or number) into standard string notation (e.g. "4/4", "6/8").
+ */
+export function formatTimeSignature(ts) {
+  if (typeof ts === 'object' && ts !== null) {
+    return `${ts.numerator || 4}/${ts.denominator || 4}`;
+  }
+  if (typeof ts === 'string' && ts.includes('/')) return ts;
+  return `${ts || 4}/4`;
+}
+
+/**
+ * Determine if a beat index represents a measure downbeat.
+ */
+export function isDownbeat(beatIndex, timeSignature) {
+  const tsNumerator = typeof timeSignature === 'object' && timeSignature !== null
+    ? timeSignature.numerator || 4
+    : typeof timeSignature === 'number'
+    ? timeSignature
+    : parseInt(String(timeSignature).split('/')[0], 10) || 4;
+  return beatIndex % tsNumerator === 0;
 }

@@ -25,13 +25,14 @@ const path = require('path');
   const musicTheory = await import('../src/lib/musicTheory.js');
   const workerDSP = await import('../src/lib/workerDSP.js');
 
-  const { simplifyChord, getRomanNumeral, transposeChordName } = musicTheory;
+  const { simplifyChord, getRomanNumeral, transposeChordName, transposeKey, formatTimeSignature, isDownbeat } = musicTheory;
   const {
     CHORD_TEMPLATES,
     CHORD_TYPES,
     NOTE_NAMES,
     NO_CHORD_STATE,
     NUM_STATES,
+    smoothExcursions,
     consolidateChords,
     detectTimeSignature,
     computeEmissionScores,
@@ -190,7 +191,7 @@ const path = require('path');
     console.log('✓ DSP-13 & BUG-02 Passed: Pre-normalization silence detection & consistent meter object shapes verified');
   }
 
-  // 8. Verify FEAT-34: Real getRomanNumeral from musicTheory.js
+  // 8. Verify FEAT-34, BUG-27 & BUG-31: Real getRomanNumeral & transposeKey from musicTheory.js
   {
     // Major key tests (C Major)
     assert.strictEqual(getRomanNumeral('C', 'C major'), 'I');
@@ -210,61 +211,52 @@ const path = require('path');
     assert.strictEqual(getRomanNumeral('E', 'A minor'), 'V');
     assert.strictEqual(getRomanNumeral('F', 'A minor'), 'VI');
 
-    console.log('✓ FEAT-34 Passed: Real getRomanNumeral maps diatonic and modal degrees across major and minor keys');
+    // BUG-31 Invariant: Chromatic minor-key degrees distinction
+    // In A minor: C# is semitone 4 (#III), D is semitone 5 (iv). They MUST NOT both map to iv.
+    assert.strictEqual(getRomanNumeral('C#', 'A minor'), '#III', 'Semitone offset 4 in A minor must map to #III');
+    assert.strictEqual(getRomanNumeral('Dm', 'A minor'), 'iv', 'Semitone offset 5 in A minor must map to iv');
+    assert.notStrictEqual(
+      getRomanNumeral('C#', 'A minor'),
+      getRomanNumeral('Dm', 'A minor'),
+      'BUG-31: Chromatic #III (C#) and subdominant iv (Dm) must have distinct degrees'
+    );
+
+    // BUG-27 Invariant: Key transposes alongside chords, preserving Roman numeral degrees
+    assert.strictEqual(transposeKey('C major', 2), 'D major', 'transposeKey("C major", 2) must equal "D major"');
+    assert.strictEqual(transposeKey('A minor', 3), 'C minor', 'transposeKey("A minor", 3) must equal "C minor"');
+
+    const originalKey = 'C major';
+    const originalChord = 'C';
+    for (let steps = -11; steps <= 11; steps++) {
+      const transposedChord = transposeChordName(originalChord, steps);
+      const transposedKey = transposeKey(originalKey, steps);
+      assert.strictEqual(
+        getRomanNumeral(transposedChord, transposedKey),
+        'I',
+        `BUG-27: Transposing C major by ${steps} semitones must preserve tonic degree I`
+      );
+    }
+
+    console.log('✓ FEAT-34, BUG-27 & BUG-31 Passed: Roman numerals, chromatic minor mapping, and transposition invariance verified');
   }
 
-  // 9. Verify UI Regressions: AnalysisBadges and WaveformDisplay Downbeats
+  // 9. Verify UI Functions: Direct production formatTimeSignature and isDownbeat from musicTheory.js
   {
-    // AnalysisBadges formatting regression check:
-    function formatBadgeMeter(ts) {
-      if (typeof ts === 'object' && ts !== null) {
-        return `${ts.numerator || 4}/${ts.denominator || 4}`;
-      }
-      if (typeof ts === 'string' && ts.includes('/')) return ts;
-      return `${ts || 4}/4`;
-    }
+    assert.strictEqual(formatTimeSignature({ numerator: 6, denominator: 8 }), '6/8', '6/8 meter object formats as "6/8"');
+    assert.strictEqual(formatTimeSignature({ numerator: 3, denominator: 4 }), '3/4', '3/4 meter object formats as "3/4"');
+    assert.strictEqual(formatTimeSignature(4), '4/4', 'Fallback 4 formats as "4/4"');
+    assert.strictEqual(formatTimeSignature('3/4'), '3/4', 'String "3/4" preserved');
 
-    assert.strictEqual(formatBadgeMeter({ numerator: 6, denominator: 8 }), '6/8', '6/8 meter object formats as "6/8"');
-    assert.strictEqual(formatBadgeMeter({ numerator: 3, denominator: 4 }), '3/4', '3/4 meter object formats as "3/4"');
-    assert.strictEqual(formatBadgeMeter(4), '4/4', 'Fallback 4 formats as "4/4"');
+    assert.strictEqual(isDownbeat(0, { numerator: 6, denominator: 8 }), true, 'Beat 0 is downbeat in 6/8');
+    assert.strictEqual(isDownbeat(5, { numerator: 6, denominator: 8 }), false, 'Beat 5 is NOT measure downbeat in 6/8');
+    assert.strictEqual(isDownbeat(6, { numerator: 6, denominator: 8 }), true, 'Beat 6 is measure downbeat in 6/8');
+    assert.strictEqual(isDownbeat(4, { numerator: 4, denominator: 4 }), true, 'Beat 4 is measure downbeat in 4/4');
 
-    // WaveformDisplay downbeat regression check:
-    function getDownbeat(i, timeSignature) {
-      const tsNumerator = typeof timeSignature === 'object' && timeSignature !== null
-        ? timeSignature.numerator || 4
-        : typeof timeSignature === 'number'
-        ? timeSignature
-        : parseInt(String(timeSignature).split('/')[0], 10) || 4;
-      return i % tsNumerator === 0;
-    }
-
-    assert.strictEqual(getDownbeat(0, { numerator: 6, denominator: 8 }), true, 'Beat 0 is downbeat in 6/8');
-    assert.strictEqual(getDownbeat(5, { numerator: 6, denominator: 8 }), false, 'Beat 5 is NOT measure downbeat in 6/8');
-    assert.strictEqual(getDownbeat(6, { numerator: 6, denominator: 8 }), true, 'Beat 6 is measure downbeat in 6/8');
-    assert.strictEqual(getDownbeat(4, { numerator: 4, denominator: 4 }), true, 'Beat 4 is measure downbeat in 4/4');
-
-    console.log('✓ UI Regressions Passed: AnalysisBadges object formatting and WaveformDisplay downbeats verified');
+    console.log('✓ Production UI Logic Passed: formatTimeSignature and isDownbeat tested directly from musicTheory.js');
   }
 
-  // 10. Verify Chord Excursion Smoothing: Preserves strong changes, absorbs weak flickers
+  // 10. Verify Chord Excursion Smoothing: Direct production smoothExcursions from workerDSP.js
   {
-    // Simulation of A -> X -> A post-processing logic
-    function smoothExcursion(path, emissions, beats, totalDuration) {
-      const smoothed = [...path];
-      for (let b = 1; b < path.length - 1; b++) {
-        if (smoothed[b - 1] === smoothed[b + 1] && smoothed[b] !== smoothed[b - 1]) {
-          const beatDuration = (beats[b + 1] || totalDuration) - beats[b];
-          const neighborScore = emissions[b][smoothed[b - 1]];
-          const currentScore = emissions[b][smoothed[b]];
-          const isWeakExcursion = currentScore < neighborScore * 1.25;
-          if (isWeakExcursion && beatDuration < 0.75) {
-            smoothed[b] = smoothed[b - 1];
-          }
-        }
-      }
-      return smoothed;
-    }
-
     const beats = [0.0, 0.5, 1.0, 1.5];
     const path = [0, 7, 0]; // C -> G -> C
 
@@ -275,7 +267,7 @@ const path = require('path');
       { 0: 0.15, 7: 0.85 },
       { 0: 0.9, 7: 0.1 }
     ];
-    const strongResult = smoothExcursion(path, strongEmissions, beats, 2.0);
+    const strongResult = smoothExcursions(path, strongEmissions, beats, 2.0);
     assert.strictEqual(strongResult[1], 7, 'Strong 1-beat chord excursion must NOT be erased');
 
     // Case 2: G is weak / noise flicker (currentScore 0.35 vs neighborScore 0.32)
@@ -285,10 +277,27 @@ const path = require('path');
       { 0: 0.32, 7: 0.35 },
       { 0: 0.9, 7: 0.1 }
     ];
-    const weakResult = smoothExcursion(path, weakEmissions, beats, 2.0);
+    const weakResult = smoothExcursions(path, weakEmissions, beats, 2.0);
     assert.strictEqual(weakResult[1], 0, 'Weak/contested 1-beat noise flicker must be smoothed into neighbor');
 
-    console.log('✓ Excursion Smoothing Passed: Real quick chord changes preserved, weak noise flickers absorbed');
+    console.log('✓ Production smoothExcursions Passed: Tested directly from workerDSP.js');
+  }
+
+  // 11. Verify BUG-28: Stable chord event IDs generated in consolidateChords
+  {
+    const rawEvents = [
+      { time: 0.0, chord: 'C', confidence: 0.9, duration: 1.0 },
+      { time: 1.0, chord: 'C', confidence: 0.9, duration: 1.0 },
+      { time: 2.0, chord: 'G', confidence: 0.85, duration: 2.0 },
+      { time: 4.0, chord: 'Am', confidence: 0.88, duration: 2.0 },
+    ];
+    const consolidated = consolidateChords(rawEvents, 6.0);
+    assert(consolidated.length >= 3, 'Consecutive C chords must merge');
+    for (const c of consolidated) {
+      assert(c.id, `Consolidated chord at ${c.time} must have a stable id`);
+      assert(c.id.startsWith('chord-'), `Stable id must follow chord-<time> pattern, got ${c.id}`);
+    }
+    console.log('✓ BUG-28 Passed: consolidateChords generates stable unique event IDs');
   }
 
   console.log('--- All Invariant Checks Passed Successfully! ---');

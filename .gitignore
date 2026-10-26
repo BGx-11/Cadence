@@ -24,6 +24,7 @@
 test_songs/
 scripts/*
 !scripts/test_invariants.js
+!scripts/run_benchmark.js
 *.mp4
 *.m4v
 *.mov

@@ -332,6 +332,26 @@ export function viterbiDecode(emissionScores, transMatrix) {
   return path;
 }
 
+/**
+ * Post-processing: Consolidate transient 1-beat chord flickers (A -> X -> A)
+ * Score-aware: only smooth excursion if evidence for X is weak/contested compared to neighbor.
+ */
+export function smoothExcursions(path, emissions, rawBeats, totalDuration) {
+  const smoothedPath = [...path];
+  for (let b = 1; b < path.length - 1; b++) {
+    if (smoothedPath[b - 1] === smoothedPath[b + 1] && smoothedPath[b] !== smoothedPath[b - 1]) {
+      const beatDuration = (rawBeats[b + 1] || totalDuration) - rawBeats[b];
+      const neighborScore = emissions[b][smoothedPath[b - 1]];
+      const currentScore = emissions[b][smoothedPath[b]];
+      const isWeakExcursion = currentScore < neighborScore * 1.25;
+      if (isWeakExcursion && beatDuration < 0.75) {
+        smoothedPath[b] = smoothedPath[b - 1];
+      }
+    }
+  }
+  return smoothedPath;
+}
+
 export function consolidateChords(rawChordsList, totalDuration, minDurationSec = 0.8) {
   if (!rawChordsList || rawChordsList.length === 0) return [];
 
@@ -388,6 +408,7 @@ export function consolidateChords(rawChordsList, totalDuration, minDurationSec =
   for (let i = 0; i < finalChords.length; i++) {
     const nextTime = i < finalChords.length - 1 ? finalChords[i + 1].time : totalDuration;
     finalChords[i].duration = Math.max(0.01, nextTime - finalChords[i].time);
+    finalChords[i].id = finalChords[i].id || `chord-${Number(finalChords[i].time).toFixed(2)}`;
   }
   // Only snap to 0.0s if opening chord started within 0.5s of audio start, preserving leading silence
   if (finalChords.length > 0 && finalChords[0].time < 0.5) {

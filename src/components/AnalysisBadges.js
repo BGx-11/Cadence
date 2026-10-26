@@ -1,6 +1,7 @@
 "use client";
 
 import React from 'react';
+import { formatTimeSignature } from '@/lib/musicTheory';
 
 export default function AnalysisBadges({ analysisResult, uniqueChords }) {
   if (!analysisResult) return null;
@@ -17,13 +18,7 @@ export default function AnalysisBadges({ analysisResult, uniqueChords }) {
       </div>
       <div className="info-badge">
         <span className="badge-label">Meter</span>
-        <span className="badge-value">
-          {typeof analysisResult.timeSignature === 'object' && analysisResult.timeSignature !== null
-            ? `${analysisResult.timeSignature.numerator || 4}/${analysisResult.timeSignature.denominator || 4}`
-            : typeof analysisResult.timeSignature === 'string' && analysisResult.timeSignature.includes('/')
-            ? analysisResult.timeSignature
-            : `${analysisResult.timeSignature || 4}/4`}
-        </span>
+        <span className="badge-value">{formatTimeSignature(analysisResult.timeSignature)}</span>
       </div>
       <div className="info-badge">
         <span className="badge-label">Chords</span>

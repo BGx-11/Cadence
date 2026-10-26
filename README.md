@@ -109,9 +109,13 @@ graph TD
 │   │   └── WaveformDisplay.js   # Interactive waveform seeking and section overlay
 │   └── lib/
 │       ├── audioWorker.js       # Dedicated Web Worker running Essentia WASM DSP algorithms
-│       ├── benchmarkSongs.js    # Metadata for benchmark audio tracks
-│       └── chordTemplates.js   # Harmonic chroma templates for major, minor, 7th, and sus chords
-├── scripts/                     # Automated accuracy evaluation & benchmark runners
+│       ├── benchmarkSongs.js    # Ground-truth metadata for benchmark audio tracks
+│       ├── chordTemplates.js   # Legacy reference templates (deprecated in favor of workerDSP.js)
+│       ├── musicTheory.js       # Unified music theory, enharmonic transposition & Roman numerals
+│       └── workerDSP.js         # Production DSP engine: calibrated templates, Viterbi HMM & smoothing
+├── scripts/
+│   ├── run_benchmark.js         # 10-song DSP ground-truth concordance & calibration runner
+│   └── test_invariants.js       # Fast mathematical, DSP, and music theory invariant test suite
 ├── package.json
 └── next.config.mjs              # Webpack WASM polyfill configuration
 ```
@@ -122,7 +126,7 @@ graph TD
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (v18.17.0 or newer recommended)
+- [Node.js](https://nodejs.org/) (v20.9.0 or newer recommended, required by Next.js 16)
 - `npm`, `pnpm`, or `yarn`
 
 ### Installation
@@ -149,10 +153,13 @@ graph TD
 
 ## 🧪 Testing & Benchmarks
 
-Cadence includes offline benchmark suites to evaluate chord recognition against ground-truth datasets across various genres:
+Cadence includes both deterministic invariant testing and full offline benchmark suites:
 
 ```bash
-# Run chord detection benchmarks on sample library
+# Run fast mathematical, DSP, and music theory invariant tests
+npm test
+
+# Run 10-song chord detection benchmark against ground truth
 node scripts/run_benchmark.js
 ```
 

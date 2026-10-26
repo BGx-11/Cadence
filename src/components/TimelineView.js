@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Music, Edit2, Check, RotateCcw, X } from 'lucide-react';
 import NowPlayingHero from '@/components/NowPlayingHero';
 import ChordChart from '@/components/ChordChart';
+import { isDownbeat } from '@/lib/musicTheory';
 
 export default function TimelineView({
   processedChords,
@@ -26,7 +27,7 @@ export default function TimelineView({
   leftHanded = false,
   onEditChord,
 }) {
-  const [editingIndex, setEditingIndex] = useState(null);
+  const [editingId, setEditingId] = useState(null);
   const [editValue, setEditValue] = useState('');
   return (
     <div className="glass-panel">
@@ -85,8 +86,7 @@ export default function TimelineView({
         >
           {analysisResult?.beats && analysisResult.beats.map((beat, i) => {
             if (beat < currentTime - 18 || beat > currentTime + 26) return null;
-            const ts = analysisResult?.timeSignature?.numerator || analysisResult?.timeSignature || 4;
-            const isDownbeat = i % ts === 0;
+            const downbeat = isDownbeat(i, analysisResult?.timeSignature);
             return (
               <div
                 key={`beat-${beat}`}
@@ -94,9 +94,9 @@ export default function TimelineView({
                   position: 'absolute',
                   left: `${beat * PX_PER_SEC}px`,
                   top: 0,
-                  width: isDownbeat ? '1.5px' : '1px',
-                  height: isDownbeat ? '100%' : '18%',
-                  background: isDownbeat
+                  width: downbeat ? '1.5px' : '1px',
+                  height: downbeat ? '100%' : '18%',
+                  background: downbeat
                     ? 'rgba(9, 9, 11, 0.15)'
                     : 'rgba(9, 9, 11, 0.06)',
                   transformOrigin: 'top',
@@ -119,6 +119,7 @@ export default function TimelineView({
           }}
         >
           {processedChords.map((c, i) => {
+            const chordId = c.id || `chord-${Number(c.time).toFixed(2)}`;
             const nextTime = i < processedChords.length - 1 ? processedChords[i + 1].time : (duration || c.time + 4);
             const chordDuration = c.duration || (nextTime - c.time);
             // Window chord cards around currentTime (-18s to +26s) to reduce DOM footprint from >4000 nodes to <100
@@ -139,7 +140,7 @@ export default function TimelineView({
 
             return (
               <div
-                key={`${c.chord}-${c.time}`}
+                key={chordId}
                 className={`chord-card ${isActive ? 'active' : isPast ? 'past' : 'upcoming'}`}
                 style={{
                   left: `${leftPos}px`,
@@ -159,7 +160,7 @@ export default function TimelineView({
                 <div className="chord-card-inner">
                   {/* Leading edge header with Roman numeral & Edit capability (FEAT-29, FEAT-34) */}
                   <div className="chord-card-header">
-                    {editingIndex === i ? (
+                    {editingId === chordId ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '3px', width: '100%' }} onClick={e => e.stopPropagation()}>
                         <input
                           autoFocus
@@ -167,10 +168,10 @@ export default function TimelineView({
                           onChange={e => setEditValue(e.target.value)}
                           onKeyDown={e => {
                             if (e.key === 'Enter') {
-                              if (onEditChord) onEditChord(i, editValue.trim());
-                              setEditingIndex(null);
+                              if (onEditChord) onEditChord(chordId, editValue.trim());
+                              setEditingId(null);
                             } else if (e.key === 'Escape') {
-                              setEditingIndex(null);
+                              setEditingId(null);
                             }
                           }}
                           style={{
@@ -189,8 +190,8 @@ export default function TimelineView({
                           className="btn btn-primary"
                           style={{ padding: '2px 5px', minWidth: 'auto', height: '22px' }}
                           onClick={() => {
-                            if (onEditChord) onEditChord(i, editValue.trim());
-                            setEditingIndex(null);
+                            if (onEditChord) onEditChord(chordId, editValue.trim());
+                            setEditingId(null);
                           }}
                           title="Save chord"
                         >
@@ -199,7 +200,7 @@ export default function TimelineView({
                         <button
                           className="btn btn-secondary"
                           style={{ padding: '2px 5px', minWidth: 'auto', height: '22px' }}
-                          onClick={() => setEditingIndex(null)}
+                          onClick={() => setEditingId(null)}
                           title="Cancel"
                         >
                           <X size={10} />
@@ -233,7 +234,7 @@ export default function TimelineView({
                               }}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onEditChord(i, null);
+                                onEditChord(chordId, null);
                               }}
                               title={`Revert to detected: ${c.originalChord}`}
                             >
@@ -251,7 +252,7 @@ export default function TimelineView({
                               }}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setEditingIndex(i);
+                                setEditingId(chordId);
                                 setEditValue(c.chord);
                               }}
                               title="Edit chord (FEAT-29)"
