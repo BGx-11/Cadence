@@ -13,7 +13,7 @@ import SettingsBar from '@/components/SettingsBar';
 import SectionMarkers from '@/components/SectionMarkers';
 import TimelineView from '@/components/TimelineView';
 import ChordSheetView from '@/components/ChordSheetView';
-import { getRomanNumeral, simplifyChord, transposeChordName, transposeKey } from '@/lib/musicTheory';
+import { getRomanNumeral, simplifyChord, transposeChordName, transposeKey, normalizeUserEditedChord } from '@/lib/musicTheory';
 
 export default function Home() {
   const [audioFile, setAudioFile] = useState(null);
@@ -541,20 +541,6 @@ export default function Home() {
     return bestCapo;
   }, []);
 
-  const handleEditChord = useCallback((chordId, newChord) => {
-    setUserChordOverrides(prev => {
-      const updated = { ...prev };
-      if (!newChord || newChord.trim() === '') {
-        delete updated[chordId];
-      } else {
-        // If currently transposed, normalize back to base detected pitch
-        const baseChord = transpose !== 0 ? transposeChordName(newChord.trim(), -transpose) : newChord.trim();
-        updated[chordId] = baseChord;
-      }
-      return updated;
-    });
-  }, [transpose]);
-
   const { processedChords, capoFret } = useMemo(() => {
     let processed = [];
     let capo = 0;
@@ -629,6 +615,24 @@ export default function Home() {
     }
     return { processedChords: processed, capoFret: capo };
   }, [analysisResult, difficulty, transpose, calculateBestCapo, duration, userChordOverrides]);
+
+  const handleEditChord = useCallback((chordId, newChord) => {
+    setUserChordOverrides(prev => {
+      const updated = { ...prev };
+      if (!newChord || newChord.trim() === '') {
+        delete updated[chordId];
+      } else {
+        // Correctly normalize displayed shape back to detected base chord across capo & transpose
+        const baseChord = normalizeUserEditedChord(newChord, {
+          difficulty,
+          capo: capoFret,
+          transpose
+        });
+        updated[chordId] = baseChord;
+      }
+      return updated;
+    });
+  }, [difficulty, capoFret, transpose]);
 
   // Active chord index
   let activeChordIndex = -1;

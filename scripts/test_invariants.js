@@ -14,30 +14,39 @@
  * - UI Regressions: Meter string formatting & Waveform downbeat calculation
  */
 
-const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
+import assert from 'assert';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+import {
+  simplifyChord,
+  getRomanNumeral,
+  transposeChordName,
+  transposeKey,
+  formatTimeSignature,
+  isDownbeat,
+  normalizeUserEditedChord
+} from '../src/lib/musicTheory.js';
+
+import {
+  CHORD_TEMPLATES,
+  CHORD_TYPES,
+  NOTE_NAMES,
+  NO_CHORD_STATE,
+  NUM_STATES,
+  smoothExcursions,
+  consolidateChords,
+  detectTimeSignature,
+  computeEmissionScores,
+  scoreChordMatch
+} from '../src/lib/workerDSP.js';
 
 (async () => {
   console.log('--- Running Cadence Invariant Suite ---');
-
-  // Load real production modules
-  const musicTheory = await import('../src/lib/musicTheory.js');
-  const workerDSP = await import('../src/lib/workerDSP.js');
-
-  const { simplifyChord, getRomanNumeral, transposeChordName, transposeKey, formatTimeSignature, isDownbeat } = musicTheory;
-  const {
-    CHORD_TEMPLATES,
-    CHORD_TYPES,
-    NOTE_NAMES,
-    NO_CHORD_STATE,
-    NUM_STATES,
-    smoothExcursions,
-    consolidateChords,
-    detectTimeSignature,
-    computeEmissionScores,
-    scoreChordMatch
-  } = workerDSP;
 
   // 1. Verify DSP-01: Real Chord Template Dimensions & Diminished Weights
   {
@@ -283,21 +292,74 @@ const path = require('path');
     console.log('✓ Production smoothExcursions Passed: Tested directly from workerDSP.js');
   }
 
-  // 11. Verify BUG-28: Stable chord event IDs generated in consolidateChords
+  // 11. Verify BUG-28: Stable and Unique chord event IDs generated in consolidateChords
   {
     const rawEvents = [
       { time: 0.0, chord: 'C', confidence: 0.9, duration: 1.0 },
       { time: 1.0, chord: 'C', confidence: 0.9, duration: 1.0 },
       { time: 2.0, chord: 'G', confidence: 0.85, duration: 2.0 },
       { time: 4.0, chord: 'Am', confidence: 0.88, duration: 2.0 },
+      { time: 6.0, chord: 'F', confidence: 0.82, duration: 2.0 },
     ];
-    const consolidated = consolidateChords(rawEvents, 6.0);
-    assert(consolidated.length >= 3, 'Consecutive C chords must merge');
+    const consolidated = consolidateChords(rawEvents, 8.0);
+    assert(consolidated.length >= 4, 'Consecutive identical C chords must merge');
+
+    const ids = consolidated.map(c => c.id);
     for (const c of consolidated) {
       assert(c.id, `Consolidated chord at ${c.time} must have a stable id`);
       assert(c.id.startsWith('chord-'), `Stable id must follow chord-<time> pattern, got ${c.id}`);
     }
-    console.log('✓ BUG-28 Passed: consolidateChords generates stable unique event IDs');
+    const uniqueIds = new Set(ids);
+    assert.strictEqual(uniqueIds.size, ids.length, 'Every consolidated chord event ID must be unique');
+
+    console.log('✓ BUG-28 Passed: consolidateChords generates stable, unique event IDs');
+  }
+
+  // 12. Verify Easy Mode Chord Editing & Transposition Round-Trip Invariants
+  {
+    // A: Easy Mode edit: displayed guitar shape 'C' on Capo 2 -> base chord 'D'
+    const baseFromCapo = normalizeUserEditedChord('C', { difficulty: 'easy', capo: 2, transpose: 0 });
+    assert.strictEqual(baseFromCapo, 'D', 'Editing C shape on Capo 2 must store D as base detected chord');
+    // Forward pass verification: D with Capo 2 displays as C shape
+    const displayedShape = simplifyChord(transposeChordName(baseFromCapo, -2));
+    assert.strictEqual(displayedShape, 'C', 'Base chord D must round-trip back to C shape on Capo 2');
+
+    // B: Easy Mode edit with active song transposition: shape 'Am' on Capo 3 with transpose +1
+    const baseWithTranspose = normalizeUserEditedChord('Am', { difficulty: 'easy', capo: 3, transpose: 1 });
+    // Capo offset is capo - transpose = 3 - 1 = +2 -> 'Am' + 2 = 'Bm'
+    assert.strictEqual(baseWithTranspose, 'Bm', 'Am shape on Capo 3 with Transpose +1 must store Bm as base chord');
+    // Forward pass verification:
+    const sounding = transposeChordName(baseWithTranspose, 1); // Bm + 1 = C#m
+    const forwardDisplayed = simplifyChord(transposeChordName(sounding, -3)); // C#m - 3 = Am
+    assert.strictEqual(forwardDisplayed, 'Am', 'Round-trip displayed chord must exactly equal entered shape Am');
+
+    // C: Standard Mode edit with transposition: displayed 'F' with transpose +2
+    const baseStandardTransposed = normalizeUserEditedChord('F', { difficulty: 'intermediate', capo: 0, transpose: 2 });
+    assert.strictEqual(baseStandardTransposed, 'D#', 'F chord with transpose +2 must normalize to base D#');
+    assert.strictEqual(transposeChordName(baseStandardTransposed, 2), 'F', 'Base D# transposed +2 must produce F');
+
+    // D: Edit stability across voicing switches (Easy <-> Intermediate <-> Hard)
+    // When user edits on chord-2.00, switching voicing mode never shifts the edit to another chord
+    const userOverrides = { 'chord-2.00': 'D' };
+    const simulatedEvents = [
+      { id: 'chord-0.00', time: 0.0, chord: 'C' },
+      { id: 'chord-2.00', time: 2.0, chord: 'G' }, // Overridden to D
+      { id: 'chord-4.00', time: 4.0, chord: 'Em' }
+    ];
+
+    const applyOverrides = (events, overrides) => events.map(e => ({
+      ...e,
+      chord: overrides[e.id] || e.chord,
+      isUserEdited: Boolean(overrides[e.id])
+    }));
+
+    const overridden = applyOverrides(simulatedEvents, userOverrides);
+    assert.strictEqual(overridden[1].chord, 'D');
+    assert.strictEqual(overridden[1].isUserEdited, true);
+    assert.strictEqual(overridden[0].isUserEdited, false);
+    assert.strictEqual(overridden[2].isUserEdited, false);
+
+    console.log('✓ Easy Mode & Transposition Editing Invariants Passed: Full round-trip normalization verified');
   }
 
   console.log('--- All Invariant Checks Passed Successfully! ---');

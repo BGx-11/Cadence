@@ -126,7 +126,7 @@ graph TD
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (v20.9.0 or newer recommended, required by Next.js 16)
+- [Node.js](https://nodejs.org/) (v20.19.0 or Node.js 24 LTS recommended, required by Next.js 16)
 - `npm`, `pnpm`, or `yarn`
 
 ### Installation

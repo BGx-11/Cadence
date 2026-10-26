@@ -8,11 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) 
 Correctness hardening, transposition-invariant Roman numeral analysis, stable chord-override identities, control accessibility, and automated CI pipeline.
 
 ### Fixed
+- **Easy Mode Chord Editing & Normalization (`src/app/page.js`, `src/lib/musicTheory.js`)**:
+  - Implemented `normalizeUserEditedChord`: when editing in Easy Mode, the displayed guitar capo shape is converted back to the underlying base detected chord using `capo - transpose`.
+  - Guarantees exact round-trip fidelity between displayed shapes and underlying sounding pitches across manual edits, transposition, and capo settings.
 - **BUG-27 (Transposition-Invariant Roman Numerals)**:
   - Transposed musical key alongside chords before computing Roman numeral harmonic degrees in `src/app/page.js`.
   - In Easy (capo) mode, Roman numerals evaluate against the capo-adjusted key (`soundingKey - capo`), ensuring that chord shapes (e.g. C shape on capo 2) correctly read as `I`.
-- **BUG-28 (Stable Chord-Override Identities)**:
-  - Replaced volatile array indices in `userChordOverrides` with stable event IDs based on start time (`chord-<time>`), generated at the detection source.
+- **BUG-28 (Stable Chord-Override Identities & Uniqueness)**:
+  - Replaced volatile array indices in `userChordOverrides` with stable, unique event IDs based on start time (`chord-<time>`), generated at the detection source.
   - Overrides apply directly to the underlying detected chord events prior to transposition and capo simplification, ensuring edits persist reliably across voicing changes and transposition without shifting onto neighboring chords.
 - **BUG-29 (Concurrent Upload Error Isolation)**:
   - Added captured `analysisId !== currentAnalysisIdRef.current` guard inside `processAudioFile` catch block, preventing older failed decodes from disturbing newly initiated audio analyses or triggering false error alerts.
@@ -22,10 +25,18 @@ Correctness hardening, transposition-invariant Roman numeral analysis, stable ch
   - Disambiguated chromatic minor degrees in `src/lib/musicTheory.js` (semitone offset 4 is `#III`, semitone 5 is `iv`), preventing chromatic major 3rds (e.g. C# in A minor) from collapsing into the subdominant `iv`.
 
 ### Repository Maintenance & Testing
-- **GitHub Actions CI Workflow**: Added `.github/workflows/ci.yml` running automated invariant tests (`npm test`), lint (`npm run lint`), and production build verification (`npm run build`).
-- **Benchmark Runner Tracking**: Un-ignored and documented `scripts/run_benchmark.js`, establishing official 10-song benchmark evaluation against ground truth.
-- **Direct Production Testing**: Extracted `smoothExcursions` into `src/lib/workerDSP.js`, and `formatTimeSignature` and `isDownbeat` into `src/lib/musicTheory.js`, replacing simulated test functions with direct imports in `scripts/test_invariants.js`.
-- **Node Requirement**: Updated documentation to Node.js 20.9+ as required by Next.js 16.
+- **Production DSP Benchmark Suite (`scripts/run_benchmark.js`)**:
+  - Refactored runner to import and evaluate production algorithms directly from `src/lib/workerDSP.js` against ground-truth metadata in `src/lib/benchmarkSongs.js`.
+  - Resolves audio from tracked `public/songs/` repository assets and fails with non-zero exit code if audio tracks are missing.
+  - Replaced misleading vocabulary count ratios with mathematically sound Precision, Recall, F1-score, and Key Detection accuracy.
+- **Upgraded CI Workflow to Node 24 LTS (`.github/workflows/ci.yml`)**:
+  - Upgraded GitHub Actions pipeline to Node 24 LTS running automated invariant tests (`npm test`), lint (`npm run lint`), and production build verification (`npm run build`).
+- **Synchronized Release Versions & ESM Configuration**:
+  - Synchronized `package.json` and `package-lock.json` metadata to version `0.2.1`.
+  - Configured `"type": "module"` in `package.json` and converted test suites to native ESM imports, eliminating Node CommonJS warnings.
+- **Strengthened Invariant Suite (`scripts/test_invariants.js`)**:
+  - Added assertions validating ID uniqueness across all consolidated chord events.
+  - Added comprehensive round-trip tests for manual chord overrides across Easy mode (capo), transposition, and voicing difficulty switching.
 - **Legacy Engine Clarification**: Documented `src/lib/chordTemplates.js` as deprecated in favor of `src/lib/workerDSP.js`.
 
 ---

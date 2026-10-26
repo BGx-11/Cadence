@@ -151,3 +151,15 @@ export function isDownbeat(beatIndex, timeSignature) {
     : parseInt(String(timeSignature).split('/')[0], 10) || 4;
   return beatIndex % tsNumerator === 0;
 }
+
+/**
+ * Normalize an edited chord shape (e.g. guitar capo shape in Easy mode or transposed chord)
+ * back to the underlying base detected chord.
+ */
+export function normalizeUserEditedChord(displayedChord, { difficulty = 'intermediate', capo = 0, transpose = 0 } = {}) {
+  if (!displayedChord || typeof displayedChord !== 'string') return '';
+  const trimmed = displayedChord.trim();
+  const capoOffset = (difficulty === 'easy' ? capo : 0) - transpose;
+  return capoOffset !== 0 ? transposeChordName(trimmed, capoOffset) : trimmed;
+}
+
