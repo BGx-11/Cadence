@@ -249,6 +249,8 @@ export default React.memo(function ChordChart({ chordName, width = 130, height =
     );
   }
 
+  const data = CHORD_LIBRARY[lookupName];
+
   if (!data) {
     // Fallback: styled badge for unknown chords
     return (

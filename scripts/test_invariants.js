@@ -117,6 +117,7 @@ const path = require('path');
     }
 
     assert.strictEqual(missing.length, 0, `All 96 worker chords must have voicings in ChordChart.js. Missing: ${missing.join(', ')}`);
+    assert(chartCode.includes('const data = CHORD_LIBRARY[lookupName];'), 'ChordChart.js must define data from CHORD_LIBRARY');
     console.log('✓ MUS-02 Passed: All 96 worker chord permutations have defined fretboard diagrams in ChordChart.js');
   }
 
