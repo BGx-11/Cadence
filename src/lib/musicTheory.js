@@ -163,3 +163,200 @@ export function normalizeUserEditedChord(displayedChord, { difficulty = 'interme
   return capoOffset !== 0 ? transposeChordName(trimmed, capoOffset) : trimmed;
 }
 
+function mergeConsecutiveIdentical(items) {
+  const merged = [];
+  for (const c of items) {
+    if (merged.length === 0) {
+      merged.push({ ...c });
+    } else {
+      const last = merged[merged.length - 1];
+      if (last.chord === c.chord) {
+        last.duration = (c.time + (c.duration || 0)) - last.time;
+        last.beatCount = (last.beatCount || 1) + (c.beatCount || 1);
+        last.confidence = Math.max(last.confidence || 0.5, c.confidence || 0.5);
+        last.isUserEdited = last.isUserEdited || c.isUserEdited;
+      } else {
+        merged.push({ ...c });
+      }
+    }
+  }
+  return merged;
+}
+
+/**
+ * Smart Chord Pacing & Harmonic Smoothing Engine
+ * 
+ * Eliminates frantic, transient chord switches that are confusing for players.
+ * Resolves harmonic excursions (A -> X -> A) where passing notes/melodic embellishments
+ * trigger momentary false chord switches ("even when it's not there in the chord").
+ * 
+ * Supports three pacing levels:
+ * - 'smart': Filters excursions and transient flickers (< 1.2s or ~2 beats)
+ * - 'relaxed': Consolidates chords to measure-level rhythm changes (~1.8s - 2.5s)
+ * - 'detailed': Retains raw chord transitions down to 0.4s
+ * 
+ * Respects user-edited chords (isUserEdited) so manual adjustments are never deleted.
+ */
+export function smartSmoothChords(chordsList, totalDuration = 0, options = {}) {
+  const { pacing = 'smart', bpm = 120 } = options;
+  if (!chordsList || chordsList.length === 0) return [];
+
+  const beatSec = bpm > 0 ? 60 / bpm : 0.5;
+
+  if (pacing === 'detailed') {
+    let merged = mergeConsecutiveIdentical(chordsList);
+    if (merged.length > 1) {
+      let clean = [];
+      for (let i = 0; i < merged.length; i++) {
+        const cur = merged[i];
+        if (cur.duration < 0.4 && !cur.isUserEdited && clean.length > 0) {
+          const prev = clean[clean.length - 1];
+          prev.duration += cur.duration;
+          prev.beatCount = (prev.beatCount || 1) + (cur.beatCount || 1);
+        } else {
+          clean.push({ ...cur });
+        }
+      }
+      merged = mergeConsecutiveIdentical(clean);
+    }
+    for (let i = 0; i < merged.length; i++) {
+      const nextTime = i < merged.length - 1 ? merged[i + 1].time : (totalDuration || merged[i].time + merged[i].duration);
+      merged[i].duration = Math.max(0.01, nextTime - merged[i].time);
+      merged[i].id = merged[i].id || `chord-${Number(merged[i].time).toFixed(2)}`;
+    }
+    return merged;
+  }
+
+  // Adaptive threshold based on tempo
+  // At 120 BPM: 2 beats = 1.0s. At 80 BPM: 2 beats = 1.5s. At 160 BPM: 2 beats = 0.75s.
+  const minDuration = pacing === 'relaxed'
+    ? Math.max(1.8, Math.min(2.8, beatSec * 3.5))
+    : Math.max(0.85, Math.min(1.4, beatSec * 1.8));
+
+  // 1. Merge consecutive identical chords
+  let list = mergeConsecutiveIdentical(chordsList);
+
+  // 2. Remove harmonic excursions (A -> X -> A) where X is a transient excursion
+  let passChanged = true;
+  let iterations = 0;
+  while (passChanged && iterations < 5) {
+    passChanged = false;
+    iterations++;
+    const nextList = [];
+    for (let i = 0; i < list.length; i++) {
+      const cur = list[i];
+      const prev = i > 0 ? list[i - 1] : null;
+      const next = i < list.length - 1 ? list[i + 1] : null;
+
+      if (prev && next && prev.chord === next.chord && cur.chord !== prev.chord && !cur.isUserEdited) {
+        const excursionLimit = pacing === 'relaxed' ? 2.5 : 1.6;
+        if (cur.duration <= excursionLimit) {
+          prev.duration += cur.duration;
+          prev.beatCount = (prev.beatCount || 1) + (cur.beatCount || 1);
+          passChanged = true;
+          continue;
+        }
+      }
+      nextList.push({ ...cur });
+    }
+    list = mergeConsecutiveIdentical(nextList);
+  }
+
+  // 3. Absorb any remaining micro-durations (< minDuration) into neighbor
+  if (list.length > 1) {
+    let clean = [];
+    for (let i = 0; i < list.length; i++) {
+      const cur = list[i];
+      if (cur.duration < minDuration && !cur.isUserEdited && clean.length > 0) {
+        const prev = clean[clean.length - 1];
+        prev.duration += cur.duration;
+        prev.beatCount = (prev.beatCount || 1) + (cur.beatCount || 1);
+      } else {
+        clean.push({ ...cur });
+      }
+    }
+    list = mergeConsecutiveIdentical(clean);
+  }
+
+  // 4. Seamless duration tiling
+  for (let i = 0; i < list.length; i++) {
+    const nextTime = i < list.length - 1 ? list[i + 1].time : (totalDuration || list[i].time + list[i].duration);
+    list[i].duration = Math.max(0.01, nextTime - list[i].time);
+    list[i].id = list[i].id || `chord-${Number(list[i].time).toFixed(2)}`;
+  }
+
+  return list;
+}
+
+/**
+ * Formats a clean, readable ASCII practice chord chart (inspired by Orbiter's Render & Export).
+ * Groups chords by song section if available, in rows of 4 measures/bars.
+ */
+export function formatPracticeChartText({
+  title = 'Untitled Song',
+  key = 'C Major',
+  bpm = 120,
+  timeSignature = 4,
+  capoFret = 0,
+  sections = [],
+  chords = []
+}) {
+  const tsStr = formatTimeSignature(timeSignature);
+  const lines = [];
+  lines.push('====================================================');
+  lines.push('CADENCE PRACTICE CHORD CHART');
+  lines.push(`Track: ${title}`);
+  lines.push(`Key: ${key} | BPM: ${bpm || '—'} | Meter: ${tsStr}`);
+  if (capoFret > 0) {
+    lines.push(`Recommended Capo: Fret ${capoFret}`);
+  }
+  lines.push('====================================================\n');
+
+  if (!chords || chords.length === 0) {
+    lines.push('No chords detected.\n');
+    return lines.join('\n');
+  }
+
+  const formatSec = (sec) => {
+    if (sec == null || isNaN(sec)) return '0:00';
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  };
+
+  if (sections && sections.length > 0) {
+    for (const sec of sections) {
+      lines.push(`[${sec.label}] (${formatSec(sec.startTime)} - ${formatSec(sec.endTime)})`);
+      const secChords = chords.filter(c => c.time >= sec.startTime - 0.05 && c.time < sec.endTime - 0.05);
+      if (secChords.length > 0) {
+        let row = [];
+        for (let i = 0; i < secChords.length; i++) {
+          row.push(secChords[i].chord.padEnd(6, ' '));
+          if (row.length === 4 || i === secChords.length - 1) {
+            lines.push(`| ${row.join('| ')}|`);
+            row = [];
+          }
+        }
+      } else {
+        lines.push('| (Instrumental / Silence) |');
+      }
+      lines.push('');
+    }
+  } else {
+    let row = [];
+    for (let i = 0; i < chords.length; i++) {
+      row.push(chords[i].chord.padEnd(6, ' '));
+      if (row.length === 4 || i === chords.length - 1) {
+        lines.push(`| ${row.join('| ')}|`);
+        row = [];
+      }
+    }
+    lines.push('');
+  }
+
+  lines.push('====================================================');
+  lines.push('Exported from Cadence');
+  return lines.join('\n');
+}
+
+

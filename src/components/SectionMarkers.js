@@ -16,23 +16,23 @@ export default function SectionMarkers({
   if (!sections || sections.length <= 1) return null;
 
   return (
-    <div className="glass-panel" style={{ marginBottom: '1.25rem' }}>
-      <div className="section-header" style={{ marginBottom: '0.75rem' }}>
-        <div className="icon-circle">
-          <Repeat size={14} />
-        </div>
-        <h3>Song Sections</h3>
+    <div className="sections-strip">
+      <div className="sections-strip-header">
+        <span className="sections-strip-title">
+          <Repeat size={12} />
+          <span>Sections</span>
+        </span>
         {loopEnabled && (
           <button
-            className="btn btn-secondary"
+            className="clear-loop-btn"
             onClick={onClearLoop}
-            style={{ marginLeft: 'auto', fontSize: '0.7rem', padding: '3px 8px' }}
+            title="Disable active section loop"
           >
             Clear Loop
           </button>
         )}
       </div>
-      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+      <div className="sections-pill-list">
         {sections.map((section, i) => {
           const isActiveSection = currentTime >= section.startTime && currentTime < section.endTime;
           const isLooped = loopEnabled && loopStart === section.startTime && loopEnd === section.endTime;
@@ -41,10 +41,11 @@ export default function SectionMarkers({
               key={i}
               className={`section-pill ${isActiveSection ? 'active' : ''} ${isLooped ? 'looped' : ''}`}
               onClick={() => onSectionClick(section)}
+              title={`Loop ${section.label} (${formatTime(section.startTime)} – ${formatTime(section.endTime)})`}
             >
               <span className="section-label">{section.label}</span>
               <span className="section-time">
-                {formatTime(section.startTime)} – {formatTime(section.endTime)}
+                {formatTime(section.startTime)}–{formatTime(section.endTime)}
               </span>
             </button>
           );

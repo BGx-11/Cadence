@@ -338,6 +338,7 @@ export function viterbiDecode(emissionScores, transMatrix) {
  */
 export function smoothExcursions(path, emissions, rawBeats, totalDuration) {
   const smoothedPath = [...path];
+  // 1-beat excursions: A -> X -> A
   for (let b = 1; b < path.length - 1; b++) {
     if (smoothedPath[b - 1] === smoothedPath[b + 1] && smoothedPath[b] !== smoothedPath[b - 1]) {
       const beatDuration = (rawBeats[b + 1] || totalDuration) - rawBeats[b];
@@ -346,6 +347,22 @@ export function smoothExcursions(path, emissions, rawBeats, totalDuration) {
       const isWeakExcursion = currentScore < neighborScore * 1.25;
       if (isWeakExcursion && beatDuration < 0.75) {
         smoothedPath[b] = smoothedPath[b - 1];
+      }
+    }
+  }
+  // 2-beat excursions: A -> X -> X -> A
+  for (let b = 1; b < path.length - 2; b++) {
+    if (smoothedPath[b - 1] === smoothedPath[b + 2] && smoothedPath[b] !== smoothedPath[b - 1] && smoothedPath[b + 1] !== smoothedPath[b - 1]) {
+      const excursionDuration = (rawBeats[b + 2] || totalDuration) - rawBeats[b];
+      const neighborScoreB1 = emissions[b][smoothedPath[b - 1]];
+      const currentScoreB1 = emissions[b][smoothedPath[b]];
+      const neighborScoreB2 = emissions[b + 1][smoothedPath[b - 1]];
+      const currentScoreB2 = emissions[b + 1][smoothedPath[b + 1]];
+      const isWeakB1 = currentScoreB1 < neighborScoreB1 * 1.25;
+      const isWeakB2 = currentScoreB2 < neighborScoreB2 * 1.25;
+      if (isWeakB1 && isWeakB2 && excursionDuration < 1.35) {
+        smoothedPath[b] = smoothedPath[b - 1];
+        smoothedPath[b + 1] = smoothedPath[b - 1];
       }
     }
   }
@@ -372,8 +389,9 @@ export function consolidateChords(rawChordsList, totalDuration, minDurationSec =
     }
   }
 
-  // 2. Absorb micro-flickers (< 0.4s) into previous chord; preserve opening chord
-  const flickerThreshold = Math.min(minDurationSec, 0.4);
+  // 2. Absorb micro-flickers (< minDurationSec) into previous chord; preserve opening chord
+  // ponytail: minDurationSec sets the minimum duration threshold for raw chord consolidation.
+  const flickerThreshold = minDurationSec;
   if (merged.length > 1) {
     let clean = [];
     for (let i = 0; i < merged.length; i++) {

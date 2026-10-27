@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import * as Tone from 'tone';
-import { Zap } from 'lucide-react';
+import { Zap, Share2, Check } from 'lucide-react';
 
 import Header from '@/components/Header';
 import UploadZone from '@/components/UploadZone';
@@ -13,7 +13,8 @@ import SettingsBar from '@/components/SettingsBar';
 import SectionMarkers from '@/components/SectionMarkers';
 import TimelineView from '@/components/TimelineView';
 import ChordSheetView from '@/components/ChordSheetView';
-import { getRomanNumeral, simplifyChord, transposeChordName, transposeKey, normalizeUserEditedChord } from '@/lib/musicTheory';
+import { getRomanNumeral, simplifyChord, transposeChordName, transposeKey, normalizeUserEditedChord, smartSmoothChords, formatPracticeChartText, isDownbeat } from '@/lib/musicTheory';
+import { playMetronomeClick, disposeSynths } from '@/lib/audioSynth';
 
 export default function Home() {
   const [audioFile, setAudioFile] = useState(null);
@@ -24,6 +25,7 @@ export default function Home() {
 
   const [analysisResult, setAnalysisResult] = useState(null);
   const [difficulty, setDifficulty] = useState('intermediate');
+  const [chordPacing, setChordPacing] = useState('smart'); // 'smart' | 'relaxed' | 'detailed'
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1.0);
@@ -39,17 +41,25 @@ export default function Home() {
   // Preferences & Training Modes
   const [leftHanded, setLeftHanded] = useState(false);
   const [speedTrainer, setSpeedTrainer] = useState(false);
+  const [audioFocus, setAudioFocus] = useState('full'); // 'full' | 'chords' | 'bass' | 'lead-cut'
+  const [chartCopied, setChartCopied] = useState(false);
+  const [metronomeEnabled, setMetronomeEnabled] = useState(false);
   const [userChordOverrides, setUserChordOverrides] = useState({});
   const speedTrainerRef = useRef(speedTrainer);
   useEffect(() => { speedTrainerRef.current = speedTrainer; }, [speedTrainer]);
   const playbackRateRef = useRef(playbackRate);
   useEffect(() => { playbackRateRef.current = playbackRate; }, [playbackRate]);
+  const metronomeEnabledRef = useRef(metronomeEnabled);
+  useEffect(() => { metronomeEnabledRef.current = metronomeEnabled; }, [metronomeEnabled]);
+  const lastBeatIndexRef = useRef(0);
 
   // Audio refs & playback
   const audioRef = useRef(null);
   const audioBlobUrlRef = useRef(null);
   const mediaSourceRef = useRef(null);
   const pitchShiftRef = useRef(null);
+  const masterLimiterRef = useRef(null);
+  const eqFilterRef = useRef(null);
   const workerRef = useRef(null);
   const animationRef = useRef(null);
   const timelineTrackRef = useRef(null);
@@ -106,24 +116,64 @@ export default function Home() {
         try { mediaSourceRef.current.disconnect(); } catch (_) {}
       }
       if (pitchShiftRef.current) pitchShiftRef.current.dispose();
+      if (masterLimiterRef.current) masterLimiterRef.current.dispose();
+      if (eqFilterRef.current) eqFilterRef.current.dispose();
+      disposeSynths();
       cancelAnimationFrame(animationRef.current);
     };
   }, [initWorker]);
 
-  // Dynamic audio routing: route native Audio element through optional pitch shift to destination
+  // Update EQ Focus filter (Orbiter-inspired frequency & stem isolation)
+  useEffect(() => {
+    if (!eqFilterRef.current) return;
+    try {
+      if (audioFocus === 'chords') {
+        eqFilterRef.current.low.value = -6;
+        eqFilterRef.current.mid.value = 4;
+        eqFilterRef.current.high.value = -3;
+      } else if (audioFocus === 'bass') {
+        eqFilterRef.current.low.value = 6;
+        eqFilterRef.current.mid.value = -4;
+        eqFilterRef.current.high.value = -6;
+      } else if (audioFocus === 'lead-cut') {
+        eqFilterRef.current.low.value = 1;
+        eqFilterRef.current.mid.value = -8;
+        eqFilterRef.current.high.value = 0;
+      } else {
+        eqFilterRef.current.low.value = 0;
+        eqFilterRef.current.mid.value = 0;
+        eqFilterRef.current.high.value = 0;
+      }
+    } catch (e) {
+      console.warn("EQ focus adjustment notice:", e);
+    }
+  }, [audioFocus]);
+
+  // Dynamic audio routing: route native Audio element through optional pitch shift,
+  // 3-band EQ tone focus filter, and studio master brickwall limiter (-1.0 dBFS target from Orbiter)
   const setupAudioRouting = useCallback((mediaSource, currentTranspose) => {
     if (!mediaSource) return;
     try {
       try { mediaSource.disconnect(); } catch (_) {}
 
+      // Master Brickwall Limiter (-1.0 dBFS ceiling from Orbiter prevents digital clipping)
+      if (!masterLimiterRef.current) {
+        masterLimiterRef.current = new Tone.Limiter(-1.0).toDestination();
+      }
+
+      // Audio Focus EQ Filter (3-band tone shaping)
+      if (!eqFilterRef.current) {
+        eqFilterRef.current = new Tone.EQ3(0, 0, 0);
+        eqFilterRef.current.connect(masterLimiterRef.current);
+      }
+
       if (currentTranspose !== 0 && pitchShiftRef.current) {
         pitchShiftRef.current.pitch = currentTranspose;
         Tone.connect(mediaSource, pitchShiftRef.current);
         try { pitchShiftRef.current.disconnect(); } catch (_) {}
-        pitchShiftRef.current.toDestination();
+        pitchShiftRef.current.connect(eqFilterRef.current);
       } else {
-        const rawCtx = Tone.getContext().rawContext;
-        mediaSource.connect(rawCtx.destination);
+        Tone.connect(mediaSource, eqFilterRef.current);
       }
     } catch (e) {
       console.warn("Audio routing notice:", e);
@@ -178,7 +228,24 @@ export default function Home() {
         if (beatsTrackRef.current) {
           beatsTrackRef.current.style.transform = `translateX(-${loopStart * PX_PER_SEC}px)`;
         }
+        if (analysisResult?.beats) {
+          const idx = analysisResult.beats.findIndex(b => b >= loopStart);
+          lastBeatIndexRef.current = idx >= 0 ? idx : 0;
+        }
       } else {
+        // Audio Metronome Click Track (studio-grade beat sync)
+        if (metronomeEnabledRef.current && analysisResult?.beats && analysisResult.beats.length > 0) {
+          const beats = analysisResult.beats;
+          const ts = analysisResult.timeSignature || 4;
+          while (lastBeatIndexRef.current < beats.length && cur >= beats[lastBeatIndexRef.current]) {
+            const beatIdx = lastBeatIndexRef.current;
+            if (cur - beats[beatIdx] < 0.075) {
+              playMetronomeClick(isDownbeat(beatIdx, ts));
+            }
+            lastBeatIndexRef.current++;
+          }
+        }
+
         // Throttle React state updates to ~15fps (every 66ms) to avoid 60fps full-tree re-render thrashing
         if (Math.abs(cur - lastStateTimeRef.current) >= 0.066 || cur < lastStateTimeRef.current) {
           lastStateTimeRef.current = cur;
@@ -190,7 +257,7 @@ export default function Home() {
         animationRef.current = requestAnimationFrame(updateTimeRef.current);
       }
     }
-  }, [loopEnabled, loopEnd, loopStart, PX_PER_SEC]);
+  }, [loopEnabled, loopEnd, loopStart, PX_PER_SEC, analysisResult]);
 
   useEffect(() => {
     updateTimeRef.current = updateTime;
@@ -229,6 +296,16 @@ export default function Home() {
       pitchShiftRef.current = null;
     }
 
+    if (masterLimiterRef.current) {
+      try { masterLimiterRef.current.dispose(); } catch (_) {}
+      masterLimiterRef.current = null;
+    }
+
+    if (eqFilterRef.current) {
+      try { eqFilterRef.current.dispose(); } catch (_) {}
+      eqFilterRef.current = null;
+    }
+
     if (timelineTrackRef.current) timelineTrackRef.current.style.transform = 'translateX(0px)';
     if (beatsTrackRef.current) beatsTrackRef.current.style.transform = 'translateX(0px)';
 
@@ -244,6 +321,9 @@ export default function Home() {
     setLoopEnabled(false);
     setLoopStart(0);
     setLoopEnd(0);
+    setMetronomeEnabled(false);
+    lastBeatIndexRef.current = 0;
+    disposeSynths();
     setUserChordOverrides({});
 
     // Cancel any in-flight worker job and reinitialize worker
@@ -291,6 +371,14 @@ export default function Home() {
     if (pitchShiftRef.current) {
       try { pitchShiftRef.current.dispose(); } catch (_) {}
       pitchShiftRef.current = null;
+    }
+    if (masterLimiterRef.current) {
+      try { masterLimiterRef.current.dispose(); } catch (_) {}
+      masterLimiterRef.current = null;
+    }
+    if (eqFilterRef.current) {
+      try { eqFilterRef.current.dispose(); } catch (_) {}
+      eqFilterRef.current = null;
     }
 
     setAudioFile(file);
@@ -447,6 +535,14 @@ export default function Home() {
         return;
       }
       if (audioRef.current.paused) {
+        // Sync beat index for audio metronome
+        if (analysisResult?.beats) {
+          const beats = analysisResult.beats;
+          const cur = audioRef.current.currentTime;
+          let idx = 0;
+          while (idx < beats.length && beats[idx] < cur) idx++;
+          lastBeatIndexRef.current = idx;
+        }
         await audioRef.current.play();
         setIsPlaying(true);
         animationRef.current = requestAnimationFrame(updateTime);
@@ -459,7 +555,7 @@ export default function Home() {
       console.error("Playback error:", err);
       setIsPlaying(false);
     }
-  }, [updateTime]);
+  }, [updateTime, analysisResult]);
 
   const seekTo = useCallback((time) => {
     const clampedTime = Math.max(0, Math.min(duration, time));
@@ -470,6 +566,12 @@ export default function Home() {
     if (audioRef.current) {
       audioRef.current.currentTime = clampedTime;
     }
+    if (analysisResult?.beats) {
+      const beats = analysisResult.beats;
+      let idx = 0;
+      while (idx < beats.length && beats[idx] < clampedTime) idx++;
+      lastBeatIndexRef.current = idx;
+    }
     setCurrentTime(clampedTime);
     if (timelineTrackRef.current) {
       timelineTrackRef.current.style.transform = `translateX(-${clampedTime * PX_PER_SEC}px)`;
@@ -477,7 +579,7 @@ export default function Home() {
     if (beatsTrackRef.current) {
       beatsTrackRef.current.style.transform = `translateX(-${clampedTime * PX_PER_SEC}px)`;
     }
-  }, [duration, PX_PER_SEC, loopEnabled, loopStart, loopEnd]);
+  }, [duration, PX_PER_SEC, loopEnabled, loopStart, loopEnd, analysisResult]);
 
   const skipForward = () => seekTo(currentTime + 5);
   const skipBackward = () => seekTo(currentTime - 5);
@@ -583,38 +685,28 @@ export default function Home() {
         processed = currentChords;
       }
 
-      // 4. Consolidate consecutive identical chords produced by simplification or transposition
-      const merged = [];
-      for (const c of processed) {
-        if (merged.length === 0) {
-          merged.push({ ...c });
-        } else {
-          const last = merged[merged.length - 1];
-          if (last.chord === c.chord) {
-            last.duration = (c.time + (c.duration || 0)) - last.time;
-            last.beatCount = (last.beatCount || 1) + (c.beatCount || 1);
-            last.confidence = Math.max(last.confidence || 0.5, c.confidence || 0.5);
-            last.isUserEdited = last.isUserEdited || c.isUserEdited;
-          } else {
-            merged.push({ ...c });
-          }
-        }
-      }
+      // 4. Smart Chord Pacing & Harmonic Smoothing
+      // Filters frantic switches and transient excursions ("even when it's not there in the chord")
+      const smoothed = smartSmoothChords(processed, duration, {
+        pacing: chordPacing,
+        bpm: analysisResult.bpm || 120,
+        timeSignature: analysisResult.timeSignature || 4
+      });
 
       // 5. Ensure seamless duration tiling and Roman numerals (BUG-27)
       // Transpose key alongside chords; in easy mode evaluate relative to capo shape
       const soundingKey = transposeKey(analysisResult.key, transpose);
       const effectiveKey = difficulty === 'easy' ? transposeKey(soundingKey, -capo) : soundingKey;
 
-      for (let i = 0; i < merged.length; i++) {
-        const nextTime = i < merged.length - 1 ? merged[i + 1].time : (duration || merged[i].time + (merged[i].duration || 4));
-        merged[i].duration = Math.max(0.01, nextTime - merged[i].time);
-        merged[i].romanNumeral = getRomanNumeral(merged[i].chord, effectiveKey);
+      for (let i = 0; i < smoothed.length; i++) {
+        const nextTime = i < smoothed.length - 1 ? smoothed[i + 1].time : (duration || smoothed[i].time + (smoothed[i].duration || 4));
+        smoothed[i].duration = Math.max(0.01, nextTime - smoothed[i].time);
+        smoothed[i].romanNumeral = getRomanNumeral(smoothed[i].chord, effectiveKey);
       }
-      processed = merged;
+      processed = smoothed;
     }
     return { processedChords: processed, capoFret: capo };
-  }, [analysisResult, difficulty, transpose, calculateBestCapo, duration, userChordOverrides]);
+  }, [analysisResult, difficulty, transpose, calculateBestCapo, duration, userChordOverrides, chordPacing]);
 
   const handleEditChord = useCallback((chordId, newChord) => {
     setUserChordOverrides(prev => {
@@ -687,18 +779,166 @@ export default function Home() {
     setLoopEnabled(true);
   };
 
+  // Set loop around current playback position (DAW 4-bar loop window)
+  const handleSetCurrentLoop = useCallback(() => {
+    if (!duration) return;
+    const currentSection = analysisResult?.sections?.find(
+      s => currentTime >= s.startTime && currentTime < s.endTime
+    );
+    if (currentSection) {
+      setLoopStart(currentSection.startTime);
+      setLoopEnd(currentSection.endTime);
+      setLoopEnabled(true);
+      return;
+    }
+    const bpm = analysisResult?.bpm || 120;
+    const ts = analysisResult?.timeSignature || 4;
+    const barDuration = (60 / bpm) * ts;
+    const loopDuration = barDuration * 4;
+    const start = Math.max(0, currentTime - 0.5);
+    const end = Math.min(duration, start + loopDuration);
+    setLoopStart(start);
+    setLoopEnd(end);
+    setLoopEnabled(true);
+  }, [duration, analysisResult, currentTime]);
+
+  // 1-Click Practice Chord Chart Export (inspired by Orbiter's RenderView)
+  const handleExportChart = useCallback(() => {
+    if (!analysisResult) return;
+    const chartText = formatPracticeChartText({
+      title: audioFile?.name || 'Untitled Song',
+      key: analysisResult.key,
+      bpm: analysisResult.bpm,
+      timeSignature: analysisResult.timeSignature,
+      capoFret: difficulty === 'easy' ? capoFret : 0,
+      sections: analysisResult.sections,
+      chords: processedChords
+    });
+
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(chartText);
+      setChartCopied(true);
+      setTimeout(() => setChartCopied(false), 2000);
+    }
+  }, [analysisResult, audioFile, difficulty, capoFret, processedChords]);
+
   return (
-    <div className="container">
-      {/* ─── Header ────────────────────────────────────────────────── */}
-      <Header />
+    <div className={`container ${audioFile ? 'studio-active' : ''}`}>
+      {/* ─── Header / Studio Topbar ─────────────────────────────────── */}
+      <Header
+        audioFile={audioFile}
+        analysisResult={analysisResult}
+        uniqueChords={uniqueChords}
+        onResetTrack={handleResetToNewTrack}
+      />
 
       {/* ─── Upload Zone or Main Studio ────────────────────────────── */}
       {!audioFile ? (
         <UploadZone onFileSelected={processAudioFile} />
       ) : (
-        <div className="animate-fade-in">
+        <div className="animate-fade-in studio-workspace">
+          {/* ─── Analysis Progress Banner ────────────────────────────── */}
+          {isAnalyzing && (
+            <div className="studio-progress-banner">
+              <div className="progress-info">
+                <span className="animate-pulse">
+                  <Zap size={13} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
+                  {analysisProgress.stage || 'Analyzing audio...'}
+                </span>
+                <span className="progress-num">{Math.round(analysisProgress.progress * 100)}%</span>
+              </div>
+              <div className="progress-bar-track">
+                <div
+                  className="progress-bar-fill"
+                  style={{ width: `${analysisProgress.progress * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
 
-          {/* ─── Player Controls & Waveform ─────────────────────────── */}
+          {/* ─── Primary Rehearsal Stage (Hero + Timeline/Sheet) ─────── */}
+          {analysisResult && processedChords.length > 0 && (
+            <section className="rehearsal-stage" aria-label="Chord Rehearsal Stage">
+              <div className="stage-header-row">
+                <div className="stage-title-wrap">
+                  <span className="stage-title">Rehearsal Stage</span>
+                  <div className="stage-pills">
+                    {difficulty === 'easy' && capoFret > 0 && (
+                      <span className="stage-pill">Capo {capoFret}</span>
+                    )}
+                    <span className="stage-pill">{chordPacing}</span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div className="segmented-control stage-toggle">
+                    <button
+                      className={`segmented-btn ${viewMode === 'timeline' ? 'active' : ''}`}
+                      onClick={() => setViewMode('timeline')}
+                    >
+                      Timeline
+                    </button>
+                    <button
+                      className={`segmented-btn ${viewMode === 'sheet' ? 'active' : ''}`}
+                      onClick={() => setViewMode('sheet')}
+                    >
+                      Chord Sheet
+                    </button>
+                  </div>
+
+                  <button
+                    className="btn btn-secondary"
+                    style={{ padding: '4px 10px', fontSize: '0.78rem', gap: '5px' }}
+                    onClick={handleExportChart}
+                    title="Copy formatted chord practice chart to clipboard"
+                  >
+                    {chartCopied ? <Check size={12} /> : <Share2 size={12} />}
+                    <span>{chartCopied ? 'Copied Chart!' : 'Export Chart'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {viewMode === 'timeline' ? (
+                <TimelineView
+                  processedChords={processedChords}
+                  activeChordIndex={activeChordIndex}
+                  activeChord={activeChord}
+                  nextChord={nextChord}
+                  timeUntilNextChord={timeUntilNextChord}
+                  activeChordBeats={activeChordBeats}
+                  analysisResult={analysisResult}
+                  currentTime={currentTime}
+                  duration={duration}
+                  isPlaying={isPlaying}
+                  difficulty={difficulty}
+                  chordPacing={chordPacing}
+                  capoFret={capoFret}
+                  leftHanded={leftHanded}
+                  PX_PER_SEC={PX_PER_SEC}
+                  beatsTrackRef={beatsTrackRef}
+                  timelineTrackRef={timelineTrackRef}
+                  onSeek={seekTo}
+                  formatTime={formatTime}
+                  onEditChord={handleEditChord}
+                />
+              ) : (
+                <ChordSheetView
+                  processedChords={processedChords}
+                  activeChordIndex={activeChordIndex}
+                  analysisResult={analysisResult}
+                  currentTime={currentTime}
+                  duration={duration}
+                  difficulty={difficulty}
+                  capoFret={capoFret}
+                  onSeek={seekTo}
+                  formatTime={formatTime}
+                  audioFile={audioFile}
+                />
+              )}
+            </section>
+          )}
+
+          {/* ─── Studio Player Dock (Waveform & Transport) ───────────── */}
           <PlayerControls
             audioFile={audioFile}
             isPlaying={isPlaying}
@@ -708,6 +948,13 @@ export default function Home() {
             analysisProgress={analysisProgress}
             analysisResult={analysisResult}
             processedChords={processedChords}
+            loopEnabled={loopEnabled}
+            loopStart={loopStart}
+            loopEnd={loopEnd}
+            metronomeEnabled={metronomeEnabled}
+            onToggleMetronome={() => setMetronomeEnabled(m => !m)}
+            onSetCurrentLoop={handleSetCurrentLoop}
+            onClearLoop={() => setLoopEnabled(false)}
             onTogglePlay={togglePlay}
             onSeek={seekTo}
             onSkipBackward={skipBackward}
@@ -716,61 +963,7 @@ export default function Home() {
             formatTime={formatTime}
           />
 
-          {/* ─── Analysis Progress Bar ─────────────────────────────── */}
-          {isAnalyzing && (
-            <div className="glass-panel" style={{ marginBottom: '1.25rem' }}>
-              <div className="section-header" style={{ marginBottom: '0.75rem' }}>
-                <div className="icon-circle">
-                  <Zap size={14} />
-                </div>
-                <h3>{analysisProgress.stage || 'Analyzing...'}</h3>
-              </div>
-              <div className="progress-bar-track">
-                <div
-                  className="progress-bar-fill"
-                  style={{ width: `${analysisProgress.progress * 100}%` }}
-                />
-              </div>
-              <p style={{ fontSize: '0.75rem', color: 'var(--foreground-dim)', marginTop: '0.5rem', textAlign: 'center', fontFamily: 'var(--font-mono)' }}>
-                {Math.round(analysisProgress.progress * 100)}%
-              </p>
-            </div>
-          )}
-
-          {/* ─── Analysis Info Badges ─────────────────────────────── */}
-          <AnalysisBadges
-            analysisResult={analysisResult}
-            uniqueChords={uniqueChords}
-          />
-
-          {/* ─── Metronome Visualizer ─────────────────────────────── */}
-          {analysisResult && analysisResult.beats && (
-            <Visualizer
-              beats={analysisResult.beats}
-              beatStrengths={analysisResult.beatStrengths}
-              currentTime={currentTime}
-              isPlaying={isPlaying}
-              bpm={analysisResult.bpm || 0}
-              timeSignature={analysisResult.timeSignature || 4}
-            />
-          )}
-
-          {/* ─── Settings Controls ─────────────────────────────────── */}
-          <SettingsBar
-            transpose={transpose}
-            onTransposeChange={setTranspose}
-            difficulty={difficulty}
-            onDifficultyChange={setDifficulty}
-            capoFret={capoFret}
-            playbackRate={playbackRate}
-            onPlaybackRateChange={setPlaybackRate}
-            leftHanded={leftHanded}
-            onLeftHandedChange={setLeftHanded}
-            speedTrainer={speedTrainer}
-            onSpeedTrainerChange={setSpeedTrainer}
-          />
-
-          {/* ─── Section Markers ───────────────────────────────────── */}
+          {/* ─── Song Section Markers ────────────────────────────────── */}
           <SectionMarkers
             sections={analysisResult?.sections}
             currentTime={currentTime}
@@ -789,63 +982,34 @@ export default function Home() {
             formatTime={formatTime}
           />
 
-          {/* ─── View Mode Toggle ──────────────────────────────────── */}
-          {analysisResult && processedChords.length > 0 && (
-            <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.85rem' }}>
-              <button
-                className={`btn ${viewMode === 'timeline' ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setViewMode('timeline')}
-                style={{ fontSize: '0.75rem', padding: '6px 14px' }}
-              >
-                Timeline View
-              </button>
-              <button
-                className={`btn ${viewMode === 'sheet' ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setViewMode('sheet')}
-                style={{ fontSize: '0.75rem', padding: '6px 14px' }}
-              >
-                Chord Sheet View
-              </button>
-            </div>
-          )}
+          {/* ─── Studio Toolbar (Voicing, Pacing, Transpose, Speed, Focus) ──── */}
+          <SettingsBar
+            transpose={transpose}
+            onTransposeChange={setTranspose}
+            difficulty={difficulty}
+            onDifficultyChange={setDifficulty}
+            chordPacing={chordPacing}
+            onChordPacingChange={setChordPacing}
+            capoFret={capoFret}
+            playbackRate={playbackRate}
+            onPlaybackRateChange={setPlaybackRate}
+            leftHanded={leftHanded}
+            onLeftHandedChange={setLeftHanded}
+            speedTrainer={speedTrainer}
+            onSpeedTrainerChange={setSpeedTrainer}
+            audioFocus={audioFocus}
+            onAudioFocusChange={setAudioFocus}
+          />
 
-          {/* ─── Chord Timeline View ───────────────────────────────── */}
-          {analysisResult && processedChords.length > 0 && viewMode === 'timeline' && (
-            <TimelineView
-              processedChords={processedChords}
-              activeChordIndex={activeChordIndex}
-              activeChord={activeChord}
-              nextChord={nextChord}
-              timeUntilNextChord={timeUntilNextChord}
-              activeChordBeats={activeChordBeats}
-              analysisResult={analysisResult}
+          {/* ─── Metronome Pulse Visualizer ──────────────────────────── */}
+          {analysisResult && analysisResult.beats && (
+            <Visualizer
+              beats={analysisResult.beats}
+              beatStrengths={analysisResult.beatStrengths}
               currentTime={currentTime}
-              duration={duration}
               isPlaying={isPlaying}
-              difficulty={difficulty}
-              capoFret={capoFret}
-              leftHanded={leftHanded}
-              PX_PER_SEC={PX_PER_SEC}
-              beatsTrackRef={beatsTrackRef}
-              timelineTrackRef={timelineTrackRef}
-              onSeek={seekTo}
-              formatTime={formatTime}
-              onEditChord={handleEditChord}
-            />
-          )}
-
-          {/* ─── Chord Sheet View ──────────────────────────────────── */}
-          {analysisResult && processedChords.length > 0 && viewMode === 'sheet' && (
-            <ChordSheetView
-              processedChords={processedChords}
-              activeChordIndex={activeChordIndex}
-              analysisResult={analysisResult}
-              currentTime={currentTime}
-              duration={duration}
-              difficulty={difficulty}
-              capoFret={capoFret}
-              onSeek={seekTo}
-              formatTime={formatTime}
+              bpm={analysisResult.bpm || 0}
+              timeSignature={analysisResult.timeSignature || 4}
             />
           )}
         </div>

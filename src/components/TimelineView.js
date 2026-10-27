@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Music, Edit2, Check, RotateCcw, X } from 'lucide-react';
+import { Music, Edit2, Check, RotateCcw, X, Volume2 } from 'lucide-react';
 import NowPlayingHero from '@/components/NowPlayingHero';
 import ChordChart from '@/components/ChordChart';
 import { isDownbeat } from '@/lib/musicTheory';
+import { playChordStrum } from '@/lib/audioSynth';
 
 export default function TimelineView({
   processedChords,
@@ -18,6 +19,7 @@ export default function TimelineView({
   duration,
   isPlaying,
   difficulty,
+  chordPacing = 'smart',
   capoFret,
   PX_PER_SEC,
   beatsTrackRef,
@@ -36,9 +38,23 @@ export default function TimelineView({
           <Music size={14} />
         </div>
         <h3>Progression Timeline</h3>
-        {difficulty === 'easy' && capoFret > 0 && (
+        {chordPacing && (
           <span style={{
             marginLeft: 'auto',
+            fontSize: '0.7rem',
+            padding: '2px 8px',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)',
+            fontFamily: 'var(--font-mono)',
+            fontWeight: 600,
+            textTransform: 'capitalize'
+          }}>
+            {chordPacing} Pacing
+          </span>
+        )}
+        {difficulty === 'easy' && capoFret > 0 && (
+          <span style={{
+            marginLeft: chordPacing ? '0.4rem' : 'auto',
             fontSize: '0.7rem',
             padding: '2px 8px',
             border: '1px solid var(--border)',
@@ -208,7 +224,15 @@ export default function TimelineView({
                       </div>
                     ) : (
                       <>
-                        <span className="chord-card-name" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                        <span
+                          className="chord-card-name"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            playChordStrum(c.chord);
+                          }}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}
+                          title={`Click to strum ${c.chord}`}
+                        >
                           {c.chord}
                           {c.romanNumeral && (
                             <span style={{
@@ -283,7 +307,15 @@ export default function TimelineView({
 
                   {/* Chord diagram if width allows */}
                   {width >= 90 && (
-                    <div className="chord-card-diagram">
+                    <div
+                      className="chord-card-diagram"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        playChordStrum(c.chord);
+                      }}
+                      style={{ cursor: 'pointer' }}
+                      title={`Click to hear acoustic strum of ${c.chord}`}
+                    >
                       <ChordChart chordName={c.chord} width={Math.min(110, width - 16)} height={135} leftHanded={leftHanded} />
                     </div>
                   )}

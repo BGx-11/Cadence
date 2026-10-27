@@ -1,7 +1,9 @@
 "use client";
 
 import React from 'react';
+import { Volume2 } from 'lucide-react';
 import ChordChart from '@/components/ChordChart';
+import { playChordStrum } from '@/lib/audioSynth';
 
 export default function NowPlayingHero({
   activeChord,
@@ -37,17 +39,15 @@ export default function NowPlayingHero({
 
         <div className="now-playing-main">
           <div className="now-playing-symbol-box">
-            <h2 className="now-playing-chord">
-              {activeChord.chord}
+            <h2 className="now-playing-chord" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+              <span>{activeChord.chord}</span>
               {activeChord.romanNumeral && (
                 <span
                   style={{
-                    fontSize: '0.9rem',
+                    fontSize: '0.85rem',
                     fontWeight: 600,
-                    marginLeft: '8px',
                     color: 'var(--foreground-muted)',
                     fontFamily: 'var(--font-mono)',
-                    verticalAlign: 'middle',
                     padding: '2px 7px',
                     border: '1px solid var(--border)',
                     borderRadius: 'var(--radius-sm)',
@@ -58,6 +58,23 @@ export default function NowPlayingHero({
                   {activeChord.romanNumeral}
                 </span>
               )}
+              <button
+                className="btn btn-secondary"
+                style={{
+                  padding: '2px 8px',
+                  fontSize: '0.72rem',
+                  gap: '4px',
+                  borderRadius: 'var(--radius-sm)'
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  playChordStrum(activeChord.chord);
+                }}
+                title="Audition chord: click to hear acoustic strum"
+              >
+                <Volume2 size={11} />
+                <span>Strum</span>
+              </button>
             </h2>
             {activeChord.originalChord && activeChord.originalChord !== activeChord.chord && (
               <span style={{
@@ -99,7 +116,12 @@ export default function NowPlayingHero({
             </div>
           </div>
 
-          <div className="now-playing-diagram">
+          <div
+            className="now-playing-diagram"
+            onClick={() => playChordStrum(activeChord.chord)}
+            style={{ cursor: 'pointer' }}
+            title="Click diagram to hear acoustic strum"
+          >
             <ChordChart chordName={activeChord.chord} width={120} height={145} leftHanded={leftHanded} />
           </div>
         </div>
@@ -116,7 +138,12 @@ export default function NowPlayingHero({
           </div>
           <div className="now-playing-next-content">
             <div className="next-chord-name">{nextChord.chord}</div>
-            <div className="next-chord-diagram">
+            <div
+              className="next-chord-diagram"
+              onClick={() => playChordStrum(nextChord.chord)}
+              style={{ cursor: 'pointer' }}
+              title="Click upcoming chord to hear acoustic strum"
+            >
               <ChordChart chordName={nextChord.chord} width={85} height={105} leftHanded={leftHanded} />
             </div>
           </div>

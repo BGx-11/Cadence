@@ -1,21 +1,52 @@
 "use client";
 
-import React from 'react';
-import { UploadCloud, Music2, Loader2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { UploadCloud, Music, Sparkles, Disc3, Loader2, ArrowRight } from 'lucide-react';
 import * as Tone from 'tone';
 
 const SAMPLE_TRACKS = [
-  { name: 'Ed Sheeran – Perfect', file: '/songs/02_Ed_Sheeran_Perfect.mp3' },
-  { name: 'The Animals – House of the Rising Sun', file: '/songs/03_House_Of_The_Rising_Sun.mp3' },
-  { name: 'Guns N\' Roses – Sweet Child O\' Mine', file: '/songs/04_Sweet_Child_O_Mine.mp3' },
+  {
+    title: 'Perfect',
+    artist: 'Ed Sheeran',
+    file: '/songs/02_Ed_Sheeran_Perfect.mp3',
+    key: 'Ab Maj',
+    bpm: '95 BPM',
+    color: '#f59e0b',
+  },
+  {
+    title: 'House of the Rising Sun',
+    artist: 'The Animals',
+    file: '/songs/03_House_Of_The_Rising_Sun.mp3',
+    key: 'A min',
+    bpm: '118 BPM',
+    color: '#38bdf8',
+  },
+  {
+    title: 'Sweet Child O\' Mine',
+    artist: 'Guns N\' Roses',
+    file: '/songs/04_Sweet_Child_O_Mine.mp3',
+    key: 'Db Maj',
+    bpm: '125 BPM',
+    color: '#a855f7',
+  },
+  {
+    title: 'Take Me Home, Country Roads',
+    artist: 'John Denver',
+    file: '/songs/05_Take_Me_Home_Country_Roads.mp3',
+    key: 'A Maj',
+    bpm: '82 BPM',
+    color: '#10b981',
+  },
 ];
 
 export default function UploadZone({ onFileSelected }) {
-  const [loadingTrack, setLoadingTrack] = React.useState(null);
+  const [loadingTrack, setLoadingTrack] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   const handleDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
+    setIsDragging(false);
     const file = e.dataTransfer?.files?.[0];
     if (file) {
       try { Tone.start(); } catch (_) {}
@@ -26,6 +57,13 @@ export default function UploadZone({ onFileSelected }) {
   const handleDragOver = (e) => {
     e.preventDefault();
     e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
   };
 
   const handleInputChange = (e) => {
@@ -40,19 +78,14 @@ export default function UploadZone({ onFileSelected }) {
   const loadSampleTrack = async (sample) => {
     if (loadingTrack) return;
     try { Tone.start(); } catch (_) {}
-    setLoadingTrack(sample.name);
+    setLoadingTrack(sample.title);
     try {
       const res = await fetch(sample.file, { cache: 'no-cache' });
       if (!res.ok) {
-        const statusDetails = res.statusText ? ` ${res.statusText}` : '';
-        throw new Error(`Track not found on server (${res.status}${statusDetails}). Ensure public/songs are committed and deployed.`);
-      }
-      const contentType = res.headers.get('content-type') || '';
-      if (contentType.includes('text/html')) {
-        throw new Error('Server returned an HTML page instead of an audio file.');
+        throw new Error(`Track not found on server (${res.status}).`);
       }
       const blob = await res.blob();
-      const file = new File([blob], `${sample.name}.mp3`, { type: 'audio/mpeg' });
+      const file = new File([blob], `${sample.artist} – ${sample.title}.mp3`, { type: 'audio/mpeg' });
       onFileSelected(file);
     } catch (err) {
       console.error('Error loading sample track:', err);
@@ -63,58 +96,130 @@ export default function UploadZone({ onFileSelected }) {
   };
 
   return (
-    <div className="animate-fade-in" style={{ maxWidth: '640px', margin: '0 auto' }}>
+    <div className="upload-hero-wrapper animate-fade-in">
+      {/* ─── Hero Dropzone ────────────────────────────────────────── */}
       <div
-        className="upload-zone"
+        className={`upload-hero-card ${isDragging ? 'dragging' : ''}`}
+        onClick={() => document.getElementById('audio-upload')?.click()}
         onDragOver={handleDragOver}
         onDragEnter={handleDragOver}
-        onDragLeave={handleDragOver}
+        onDragLeave={handleDragLeave}
         onDrop={handleDrop}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            document.getElementById('audio-upload')?.click();
+          }
+        }}
+        style={{ cursor: 'pointer' }}
       >
         <input
           type="file"
           accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac,.aac"
           onChange={handleInputChange}
           id="audio-upload"
-          style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
+          className="file-input-hidden"
           aria-label="Upload audio file"
         />
-        <UploadCloud size={48} color="var(--foreground)" style={{ marginBottom: '0.85rem' }} />
-        <h2 style={{ fontSize: '1.25rem', marginBottom: '0.35rem' }}>Select audio file</h2>
-        <p style={{ color: 'var(--foreground-muted)', fontSize: '0.875rem' }}>
-          Drop any track or <span style={{ textDecoration: 'underline', fontWeight: 600, color: 'var(--foreground)' }}>browse</span>
-        </p>
-        <p style={{ color: 'var(--foreground-dim)', fontSize: '0.75rem', marginTop: '1rem', fontFamily: 'var(--font-mono)' }}>
-          MP3, WAV, FLAC, OGG, AAC
-        </p>
+
+        {/* Ambient background glow orb */}
+        <div className="upload-glow-orb" />
+
+        <div className="upload-icon-stage">
+          <div className="upload-pulse-ring" />
+          <div className="upload-icon-inner">
+            <Disc3 size={32} className="upload-disc-icon" />
+          </div>
+        </div>
+
+        <div className="upload-copy-block">
+          <h2 className="upload-headline">Drop your track here</h2>
+          <p className="upload-subline">
+            or <span className="upload-browse-cta">browse from device</span>
+          </p>
+        </div>
+
+        <div className="upload-badges-row">
+          <span className="format-tag">MP3</span>
+          <span className="format-tag">WAV</span>
+          <span className="format-tag">FLAC</span>
+          <span className="format-tag">M4A</span>
+          <span className="format-tag">OGG</span>
+        </div>
+
+        <div className="upload-meta-footer">
+          <span className="engine-badge">
+            <Sparkles size={11} className="engine-icon" />
+            Viterbi Chroma Engine • 96 Guitar Voicings
+          </span>
+        </div>
       </div>
 
-      <div style={{ marginTop: '1.5rem', textAlign: 'center' }}>
-        <p style={{ fontSize: '0.75rem', color: 'var(--foreground-dim)', marginBottom: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-          Or try a sample track
-        </p>
-        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+      {/* ─── Benchmark Demo Tracks ────────────────────────────────── */}
+      <div className="demo-tracks-section">
+        <div className="demo-header">
+          <div className="demo-header-line" />
+          <span className="demo-header-title">Or explore studio benchmarks</span>
+          <div className="demo-header-line" />
+        </div>
+
+        <div className="demo-tracks-grid">
           {SAMPLE_TRACKS.map((track, i) => (
             <button
               key={i}
-              className="btn btn-secondary"
+              id={`sample-track-${i}`}
+              type="button"
+              className={`demo-track-card ${loadingTrack === track.title ? 'loading' : ''}`}
               onClick={() => loadSampleTrack(track)}
               disabled={!!loadingTrack}
-              style={{
-                fontSize: '0.75rem',
-                padding: '6px 12px',
-                opacity: loadingTrack && loadingTrack !== track.name ? 0.5 : 1,
-                cursor: loadingTrack ? 'not-allowed' : 'pointer'
-              }}
             >
-              {loadingTrack === track.name ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <Music2 size={13} />
-              )}
-              {loadingTrack === track.name ? 'Loading...' : track.name}
+              <div
+                className="demo-card-accent"
+                style={{ background: track.color }}
+              />
+              <div className="demo-card-icon">
+                {loadingTrack === track.title ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Music size={16} />
+                )}
+              </div>
+              <div className="demo-card-info">
+                <span className="demo-song-title">{track.title}</span>
+                <span className="demo-artist-name">{track.artist}</span>
+              </div>
+              <div className="demo-card-meta">
+                <span className="demo-pill key">{track.key}</span>
+                <span className="demo-pill bpm">{track.bpm}</span>
+              </div>
+              <ArrowRight size={13} className="demo-arrow" />
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* ─── Keyboard Shortcuts Hint ──────────────────────────────── */}
+      <div className="studio-shortcuts-bar">
+        <div className="shortcut-item">
+          <kbd>Space</kbd>
+          <span>Play / Pause</span>
+        </div>
+        <span className="shortcut-sep">•</span>
+        <div className="shortcut-item">
+          <kbd>←</kbd> <kbd>→</kbd>
+          <span>Seek 5s</span>
+        </div>
+        <span className="shortcut-sep">•</span>
+        <div className="shortcut-item">
+          <kbd>[</kbd> <kbd>]</kbd>
+          <span>Loop Range</span>
+        </div>
+        <span className="shortcut-sep">•</span>
+        <div className="shortcut-item">
+          <kbd>+</kbd> <kbd>−</kbd>
+          <span>Transpose</span>
         </div>
       </div>
     </div>

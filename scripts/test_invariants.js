@@ -29,8 +29,12 @@ import {
   transposeKey,
   formatTimeSignature,
   isDownbeat,
-  normalizeUserEditedChord
+  normalizeUserEditedChord,
+  smartSmoothChords,
+  formatPracticeChartText
 } from '../src/lib/musicTheory.js';
+
+import { getVoicedNotes } from '../src/lib/audioSynth.js';
 
 import {
   CHORD_TEMPLATES,
@@ -360,6 +364,97 @@ import {
     assert.strictEqual(overridden[2].isUserEdited, false);
 
     console.log('✓ Easy Mode & Transposition Editing Invariants Passed: Full round-trip normalization verified');
+  }
+
+  // 13. Verify Smart Chord Pacing & Smoothing Invariants
+  {
+    // A: Excursion collapse (C -> G (0.5s) -> C) collapses to C in 'smart' mode
+    const excursionEvents = [
+      { id: 'chord-0.00', time: 0.0, chord: 'C', duration: 2.0 },
+      { id: 'chord-2.00', time: 2.0, chord: 'G', duration: 0.5 }, // 0.5s passing flicker
+      { id: 'chord-2.50', time: 2.5, chord: 'C', duration: 1.5 },
+      { id: 'chord-4.00', time: 4.0, chord: 'F', duration: 4.0 }
+    ];
+    const smartResult = smartSmoothChords(excursionEvents, 8.0, { pacing: 'smart', bpm: 120 });
+    assert.strictEqual(smartResult.length, 2, 'Smart pacing must collapse transient G excursion into C');
+    assert.strictEqual(smartResult[0].chord, 'C', 'First chord must be C');
+    assert.strictEqual(smartResult[0].duration, 4.0, 'First chord C must span full 4.0s duration');
+    assert.strictEqual(smartResult[1].chord, 'F', 'Second chord must be F');
+
+    // B: User-edited chord preservation: an explicit user edit must NEVER be absorbed
+    const userEditedEvents = [
+      { id: 'chord-0.00', time: 0.0, chord: 'C', duration: 2.0 },
+      { id: 'chord-2.00', time: 2.0, chord: 'G', duration: 0.5, isUserEdited: true },
+      { id: 'chord-2.50', time: 2.5, chord: 'C', duration: 1.5 }
+    ];
+    const userEditResult = smartSmoothChords(userEditedEvents, 4.0, { pacing: 'smart', bpm: 120 });
+    assert.strictEqual(userEditResult.length, 3, 'User-edited short chord must be preserved');
+    assert.strictEqual(userEditResult[1].chord, 'G');
+    assert.strictEqual(userEditResult[1].isUserEdited, true);
+
+    // C: Detailed mode preservation: detailed pacing keeps all valid >= 0.4s chords
+    const detailedResult = smartSmoothChords(excursionEvents, 8.0, { pacing: 'detailed', bpm: 120 });
+    assert.strictEqual(detailedResult.length, 4, 'Detailed mode must preserve 0.5s transition');
+    assert.strictEqual(detailedResult[1].chord, 'G');
+
+    // D: Seamless duration tiling verification
+    for (let i = 0; i < smartResult.length - 1; i++) {
+      const chordEnd = smartResult[i].time + smartResult[i].duration;
+      assert(
+        Math.abs(chordEnd - smartResult[i + 1].time) < 0.001,
+        `Smart chord ${i} end (${chordEnd}) must seamlessly tile to next chord start (${smartResult[i + 1].time})`
+      );
+    }
+
+    console.log('✓ Smart Chord Pacing Invariants Passed: Excursion elimination, edit preservation & tiling verified');
+  }
+
+  // 14. Verify Orbiter Practice Chart Export Formatter
+  {
+    const sampleChords = [
+      { chord: 'C', time: 0.0, duration: 2.0 },
+      { chord: 'G', time: 2.0, duration: 2.0 },
+      { chord: 'Am', time: 4.0, duration: 2.0 },
+      { chord: 'F', time: 6.0, duration: 2.0 }
+    ];
+    const sampleSections = [
+      { label: 'Verse', startTime: 0.0, endTime: 4.0 },
+      { label: 'Chorus', startTime: 4.0, endTime: 8.0 }
+    ];
+
+    const chartText = formatPracticeChartText({
+      title: 'Let It Be',
+      key: 'C Major',
+      bpm: 72,
+      timeSignature: 4,
+      capoFret: 0,
+      sections: sampleSections,
+      chords: sampleChords
+    });
+
+    assert(chartText.includes('CADENCE PRACTICE CHORD CHART'), 'Chart header required');
+    assert(chartText.includes('Track: Let It Be'), 'Track title required');
+    assert(chartText.includes('Key: C Major | BPM: 72 | Meter: 4/4'), 'Metadata required');
+    assert(chartText.includes('[Verse] (0:00 - 0:04)'), 'Verse section required');
+    assert(chartText.includes('[Chorus] (0:04 - 0:08)'), 'Chorus section required');
+    assert(chartText.includes('| C     | G     |'), 'Verse chords formatted into bar grid');
+    assert(chartText.includes('| Am    | F     |'), 'Chorus chords formatted into bar grid');
+
+    console.log('✓ Practice Chord Chart Export (Orbiter RenderView) Verified');
+  }
+
+  // 15. Verify Chord Audition Voicing Generator
+  {
+    const cNotes = getVoicedNotes('C');
+    assert.deepStrictEqual(cNotes, ['C3', 'E4', 'G4'], 'C major chord should voice to C3, E4, G4');
+
+    const amNotes = getVoicedNotes('Am');
+    assert.deepStrictEqual(amNotes, ['A3', 'C4', 'E4'], 'Am chord should voice to A3, C4, E4');
+
+    const ncNotes = getVoicedNotes('N.C.');
+    assert.deepStrictEqual(ncNotes, [], 'No chord should return empty notes');
+
+    console.log('✓ Chord Audition Voicing Generator Verified');
   }
 
   console.log('--- All Invariant Checks Passed Successfully! ---');
